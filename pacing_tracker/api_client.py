@@ -75,7 +75,7 @@ class PriceLabsClient:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
-        return self._get(f"listing_data/{listing_id}/overrides", params=params)
+        return self._get(f"listings/{listing_id}/overrides", params=params)
 
     def update_listing_date_overrides(self, listing_id, pms, overrides):
-        return self._post(f"listing_data/{listing_id}/overrides", json_body={"pms": pms, "overrides": overrides})
+        return self._post(f"listings/{listing_id}/overrides", json_body={"pms": pms, "overrides": overrides})

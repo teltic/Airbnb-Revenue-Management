@@ -191,12 +191,17 @@ there, in both dry-run and real mode — only the final write is gated by
 
 ### Known limitation: the write endpoint is unverified
 
-`get_listing_date_overrides` — confirmed working, response shape pulled
-directly from the live account. `update_listing_date_overrides` is
-built the same way as every other endpoint here (matching the pattern of
-the ones already confirmed), but this environment can't reach
-`api.pricelabs.co` to test a real POST, and a write isn't something to
-guess-and-check with real pricing data. **Before trusting this daily:
+Both endpoints live at `listings/{listing_id}/overrides` (GET to read,
+POST to write) — not `listing_data/{listing_id}/overrides` as first
+assumed by mirroring the internal MCP tool's own routing path, which
+404'd against the live account. Found the real path empirically (see git
+history for `scripts/check_overrides_endpoint.py`, since removed once it
+had served its purpose) by trying several plausible alternatives.
+`get_listing_date_overrides` (GET) is now confirmed working, response
+shape pulled directly from the live account. `update_listing_date_overrides`
+(POST) uses the same now-confirmed base path, but this environment can't
+reach `api.pricelabs.co` to test a real POST, and a write isn't something
+to guess-and-check with real pricing data. **Before trusting this daily:
 run without `--confirm` first (the default; sanity-check the printed
 plan), then test with `--confirm --listing-id <one listing>` on a single
 low-stakes date and verify the result via PriceLabs' own dashboard or
