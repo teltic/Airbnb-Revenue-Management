@@ -88,3 +88,21 @@ MEDIAN_BOOKING_WINDOW_BY_MONTH = {
 }
 
 WEEKEND_DAYS = {"Fri", "Sat"}  # per spec: weekend = Fri-Sat, weekday = Sun-Thu
+
+# --- neighborhood_data comp-set category overrides --------------------------
+# Some accounts' market dashboards segment comp sets by bedroom count, so a
+# listing's neighborhood_data response can have several "Category" buckets
+# (e.g. "3", "4", "5", "9") instead of one. When that happens, picking by
+# "most listings used" is a guess -- it can easily land on a bucket that
+# doesn't match how the listing is actually configured to be priced. Set an
+# explicit override here (the exact category key as it appears in the live
+# response) for any listing with more than one category.
+#
+# Game Room is set to "5" here because the spec notes it's still labeled
+# 5BR in PriceLabs (even though it's actually 4BR) -- so its comp set should
+# be the 5BR bucket, not whichever bucket happens to have the most listings.
+# VERIFY this against your PriceLabs account (Listing > bedroom count) the
+# first time you see the "picking X by Listings Used" warning for a listing.
+NEIGHBORHOOD_CATEGORY_OVERRIDES = {
+    "0e251a6a-3ea4-4d32-878a-cd734591c925": "5",  # Game Room
+}

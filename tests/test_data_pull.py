@@ -1,12 +1,28 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
+from pacing_tracker import config
 from pacing_tracker.data_pull import _booked_dates, _extract_reservation_rows, _parse_occupancy_curve, run_pull
 from pacing_tracker.snapshot_cache import SnapshotStore
 
 
+def _category_block(dates, occ, occ_ly, occ_stly, listings_used=5):
+    return {
+        "Listings Used": listings_used,
+        "X_values": dates,
+        "Y_values": [occ, [0] * len(dates), [0] * len(dates), occ_ly, occ_stly, [0] * len(dates)],
+    }
+
+
 def _neighborhood_response(dates, occ, occ_ly, occ_stly, category="Comp Set A"):
+    return _neighborhood_response_multi(
+        {category: _category_block(dates, occ, occ_ly, occ_stly)}
+    )
+
+
+def _neighborhood_response_multi(categories):
     return {
         "data": {
             "Future Occ/New/Canc": {
@@ -18,13 +34,7 @@ def _neighborhood_response(dates, occ, occ_ly, occ_stly, category="Comp Set A"):
                     "Occupancy_STLY",
                     "New_Bookings_STLY",
                 ],
-                "Category": {
-                    category: {
-                        "Listings Used": 5,
-                        "X_values": dates,
-                        "Y_values": [occ, [0] * len(dates), [0] * len(dates), occ_ly, occ_stly, [0] * len(dates)],
-                    }
-                },
+                "Category": categories,
             }
         },
         "status": "Success",
@@ -51,12 +61,38 @@ class ParseOccupancyCurveTest(unittest.TestCase):
     def test_parses_single_category(self):
         dates = ["2026-09-12", "2026-09-13"]
         resp = _neighborhood_response(dates, [50, 60], [40, 50], [45, 55])
-        curve = _parse_occupancy_curve(resp)
+        curve = _parse_occupancy_curve(resp, "L1")
         self.assertEqual(curve["2026-09-12"], {"occ": 50, "occ_ly": 40, "occ_stly": 45})
         self.assertEqual(curve["2026-09-13"], {"occ": 60, "occ_ly": 50, "occ_stly": 55})
 
     def test_missing_block_returns_empty(self):
-        self.assertEqual(_parse_occupancy_curve({"data": {}}), {})
+        self.assertEqual(_parse_occupancy_curve({"data": {}}, "L1"), {})
+
+    def test_multiple_categories_uses_configured_override(self):
+        dates = ["2026-09-12"]
+        resp = _neighborhood_response_multi(
+            {
+                "3": _category_block(dates, [10], [10], [10], listings_used=50),  # most used
+                "5": _category_block(dates, [70], [60], [65], listings_used=2),  # the real comp set
+            }
+        )
+        with mock.patch.dict(
+            config.NEIGHBORHOOD_CATEGORY_OVERRIDES, {"game-room": "5"}, clear=True
+        ):
+            curve = _parse_occupancy_curve(resp, "game-room")
+        self.assertEqual(curve["2026-09-12"], {"occ": 70, "occ_ly": 60, "occ_stly": 65})
+
+    def test_multiple_categories_falls_back_to_most_used_without_override(self):
+        dates = ["2026-09-12"]
+        resp = _neighborhood_response_multi(
+            {
+                "3": _category_block(dates, [10], [10], [10], listings_used=50),
+                "5": _category_block(dates, [70], [60], [65], listings_used=2),
+            }
+        )
+        with mock.patch.dict(config.NEIGHBORHOOD_CATEGORY_OVERRIDES, {}, clear=True):
+            curve = _parse_occupancy_curve(resp, "unmapped-listing")
+        self.assertEqual(curve["2026-09-12"], {"occ": 10, "occ_ly": 10, "occ_stly": 10})
 
 
 class ExtractReservationRowsTest(unittest.TestCase):

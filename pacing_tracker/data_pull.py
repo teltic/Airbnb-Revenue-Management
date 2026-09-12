@@ -30,19 +30,39 @@ def _date_range(start, days):
 
 def _select_category(categories, listing_id):
     """neighborhood_data groups curves under a comp-set "Category" name.
-    Most accounts have exactly one auto-selected category; if there's more
-    than one we pick the one with the most listings used and warn, since we
-    have no per-listing config for which category to prefer.
+    Most accounts have exactly one auto-selected category. When there's more
+    than one (e.g. the account's market dashboard segments by bedroom count),
+    picking the "right" one isn't guessable from popularity alone -- a
+    mislabeled listing (see config.NEIGHBORHOOD_CATEGORY_OVERRIDES) can easily
+    have its most-used comp segment be a different bedroom count than the one
+    it should actually be priced against. So: use the configured override if
+    one exists for this listing; only fall back to "most listings used" (with
+    a loud warning) when there's no override to guide the choice.
     """
     if not categories:
         return None, None
     if len(categories) == 1:
         name = next(iter(categories))
         return name, categories[name]
+
+    override = config.NEIGHBORHOOD_CATEGORY_OVERRIDES.get(listing_id)
+    if override is not None:
+        if override in categories:
+            return override, categories[override]
+        logger.warning(
+            "Listing %s has a category override of %r configured, but the live "
+            "categories are %s -- override not found, falling back to auto-pick.",
+            listing_id,
+            override,
+            list(categories.keys()),
+        )
+
     name = max(categories, key=lambda k: categories[k].get("Listings Used", 0))
     logger.warning(
-        "Listing %s has %d neighborhood_data categories (%s); picking %r by Listings Used. "
-        "Set a category override in config.py if this is wrong.",
+        "Listing %s has %d neighborhood_data categories (%s) and no (working) "
+        "override configured; picking %r by Listings Used. Verify this is the "
+        "comp set you actually want and set NEIGHBORHOOD_CATEGORY_OVERRIDES in "
+        "config.py if not.",
         listing_id,
         len(categories),
         list(categories.keys()),
@@ -51,14 +71,14 @@ def _select_category(categories, listing_id):
     return name, categories[name]
 
 
-def _parse_occupancy_curve(neighborhood_response):
+def _parse_occupancy_curve(neighborhood_response, listing_id):
     """Returns {date_str: {"occ": x, "occ_ly": y, "occ_stly": z}} from a
     neighborhood_data response, or {} if the shape doesn't match.
     """
     payload = neighborhood_response.get("data", neighborhood_response)
     occ_block = payload.get("Future Occ/New/Canc", {})
     categories = occ_block.get("Category", {})
-    _, cat = _select_category(categories, payload.get("listing_id", "?"))
+    _, cat = _select_category(categories, listing_id)
     if not cat:
         return {}
 
@@ -147,7 +167,7 @@ def pull_listing_data(client, snapshot_store, listing, pull_date, window_dates):
     window_date_strs = [d.isoformat() for d in window_dates]
 
     neighborhood_resp = client.get_neighborhood_data(listing_id, pms)
-    curve = _parse_occupancy_curve(neighborhood_resp)
+    curve = _parse_occupancy_curve(neighborhood_resp, listing_id)
 
     reservations = _fetch_all_reservations(
         client, pms, listing_id, window_date_strs[0], window_date_strs[-1]
