@@ -233,3 +233,19 @@ Daily Pacing sheet itself, editable there without touching any formula.
 `LISTINGS` isn't used by the data-pull or Excel stages (Report Builder
 already blends both listings), but will be needed by the push phase,
 which pushes overrides per listing.
+
+## Daily automation (Windows Task Scheduler)
+
+`run_daily.bat` runs the data pull and Excel generation back to back,
+logging to `logs\daily_run.log`. It resolves its own folder (`%~dp0`), so
+it works regardless of where the repo is cloned. Push is deliberately
+**not** part of this — per the spec, pushing overrides is a manual,
+reviewed action ("one batch, not one date at a time"), not something to
+run unattended.
+
+To schedule it: Task Scheduler → Create Basic Task → daily trigger at
+your preferred time → action "Start a program" → browse to
+`run_daily.bat` in this repo's folder. In the task's Properties afterward,
+under Settings, check "Run task as soon as possible after a scheduled
+start is missed" so a sleeping/off PC at the scheduled time doesn't just
+skip that day.
