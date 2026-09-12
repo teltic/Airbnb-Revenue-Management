@@ -36,12 +36,14 @@ class PriceLabsClient:
     def _headers(self):
         return {"X-API-Key": self.api_key}
 
-    def _get(self, path, params=None):
+    def _request(self, method, path, params=None, json_body=None):
         url = f"{self.base_url}/{path.lstrip('/')}"
         last_error = None
         for attempt in range(self.max_retries):
             try:
-                resp = self.session.get(url, headers=self._headers(), params=params, timeout=30)
+                resp = self.session.request(
+                    method, url, headers=self._headers(), params=params, json=json_body, timeout=30
+                )
                 if resp.status_code == 429 or resp.status_code >= 500:
                     last_error = PriceLabsAPIError(f"{resp.status_code} from {url}: {resp.text[:500]}")
                     time.sleep(self.backoff_seconds * (attempt + 1))
@@ -53,6 +55,12 @@ class PriceLabsClient:
                 last_error = PriceLabsAPIError(f"Request to {url} failed: {exc}")
                 time.sleep(self.backoff_seconds * (attempt + 1))
         raise last_error
+
+    def _get(self, path, params=None):
+        return self._request("GET", path, params=params)
+
+    def _post(self, path, json_body=None):
+        return self._request("POST", path, json_body=json_body)
 
     def get_neighborhood_data(self, listing_id, pms):
         """Per-listing comp-set market snapshot, including a daily
@@ -70,3 +78,17 @@ class PriceLabsClient:
         if offset is not None:
             params["offset"] = offset
         return self._get("reservation_data", params=params)
+
+    def get_report_builder_templates(self):
+        """DIAGNOSTIC ONLY (see scripts/check_report_builder_access.py) --
+        this endpoint is only known to exist on PriceLabs' internal/session
+        tooling; whether it's also reachable from a plain Customer API key
+        is exactly what that script is checking. Not used by data_pull.py.
+        """
+        return self._get("report_builder/templates")
+
+    def get_report_builder_data(self, template_id):
+        return self._post("report_builder/data", json_body={"template_id": template_id})
+
+    def poll_report_builder_data(self, request_id):
+        return self._post("report_builder/poll", json_body={"request_id": request_id})
