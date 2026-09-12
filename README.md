@@ -9,7 +9,7 @@ implements.
 
 - [x] Data pull (`pacing_tracker/`) — pulls occupancy, market occupancy,
       LY/STLY, and self-computed pickup for the next 365 days, blended
-      across both listings.
+      across both listings. Verified end-to-end against the live account.
 - [ ] Excel report generation with live formulas (next phase).
 - [ ] Push mode (reads reviewed Override Request/Notes columns back to
       PriceLabs) (later phase, separate from this one).
@@ -76,27 +76,35 @@ future date. Practical effect: pickup3d/7d/14d become meaningful within
 accumulated history. Until a window has enough history, that field is
 `None` (renders blank in the report) rather than a misleading zero.
 
-## Known unknowns — verify against your real API key
+## Verified against the live account (2026-09-12)
 
-This dev environment's network policy blocks outbound calls to
-`api.pricelabs.co`, so none of this has been smoke-tested against a live
-key yet — only against the shapes of real responses fetched via an
-already-authenticated internal tool during development. Before relying on
-scheduled daily runs, do one manual run and check:
+The assumptions below were unconfirmed during initial development (this
+dev environment's network policy blocks outbound calls to
+`api.pricelabs.co`) but have since been smoke-tested end-to-end from the
+user's own machine, against real data for both listings:
 
-1. **Base URL / auth header** (`pacing_tracker/config.py`,
-   `pacing_tracker/api_client.py`): currently assumes
-   `https://api.pricelabs.co/v1` and an `X-API-Key` header. Adjust either
-   via `PRICELABS_API_BASE_URL` env var or by editing `api_client.py` if
-   your account's API docs (Settings > API Details) say otherwise.
-2. **neighborhood_data comp-set category**: if a listing's response has
-   more than one entry under `Future Occ/New/Canc.Category`, the code
-   currently auto-picks the one with the most `Listings Used` and logs a
-   warning — confirm that's the right one for these two listings.
-3. **reservation_data pagination**: uses `limit`/`offset` query params
-   based on the field names PriceLabs' own tooling exposes; if the real
-   API paginates differently, `_fetch_all_reservations` in
-   `pacing_tracker/data_pull.py` needs updating.
+1. **Base URL / auth header**: `https://api.pricelabs.co/v1` with an
+   `X-API-Key` header both work as assumed.
+2. **neighborhood_data comp-set category**: Mesquite has a single category
+   (no ambiguity). Game Room has 5 (bedroom-count buckets `9/5/4/2/3`) —
+   `NEIGHBORHOOD_CATEGORY_OVERRIDES` in `config.py` pins it to `"4"`,
+   confirmed against that listing's actual "Bedrooms" field in PriceLabs
+   (its title text still says 5BR/2BA, but that field is what
+   neighborhood_data segments by, and it correctly reads 4). If this
+   listing's bedroom count is ever corrected/changed in PriceLabs, or a
+   new listing gets added with more than one comp-set category, re-check
+   this override.
+3. **reservation_data pagination**: the live response shape is
+   `{"data": [...rows...], "next_page": ...}` — `"data"` is directly the
+   row list, not a further-nested object. `_extract_reservation_rows` in
+   `data_pull.py` handles this (and, defensively, a nested shape too).
+4. **neighborhood_data's future curve doesn't quite cover the full 365
+   days**: live, it covers 360 of 365 (blank for roughly the last 5 days
+   of the window). `occupancy_pct` still populates for those tail dates
+   since it comes from `reservation_data`, not the curve. Not treated as a
+   bug — nobody's acting on pacing signals 360+ days out anyway — but
+   worth knowing if the Excel report shows blank Market Occ%/pace columns
+   right at the far edge of the sheet.
 
 ## Configuration
 
