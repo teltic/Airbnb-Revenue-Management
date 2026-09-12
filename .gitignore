@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated workbook output and manual CSV fallback input stay local.
+output/
+*.xlsx
+!config/*.xlsx
+data/bookings_export.csv
