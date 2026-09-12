@@ -1,13 +1,28 @@
 """Builds the "Daily Pacing" workbook from a data_pull.py JSON output.
 
-Replicates the reference workbook (Daily_Pacing_Pickup_9.11.26.xlsx) as
-closely as possible: same headers, same formulas (Pace vs STLY, Pace/Pickup
-ratios, Suggested Bump, Signal, Override Status, New Since Last Review,
-Days Out, Median Booking Window), same threshold cell layout (Z1:AA30 on
-Daily Pacing), and the same conditional formatting. Override
-Request/Notes and each date's prior Signal are carried forward from
-yesterday's file (see carryforward.py) so a rebuild never wipes manual
-input, and "New Since Last Review" has something real to compare against.
+Started as a close replica of the reference workbook
+(Daily_Pacing_Pickup_9.11.26.xlsx): same headers, same formulas (Pace vs
+STLY, Pace/Pickup ratios, Suggested Bump, Signal, Override Status, New
+Since Last Review, Days Out, Median Booking Window), same threshold cell
+layout (Z1:AA30, now AA31 too, on Daily Pacing), and the same conditional
+formatting. Override Request/Notes and each date's prior Signal are
+carried forward from yesterday's file (see carryforward.py) so a rebuild
+never wipes manual input, and "New Since Last Review" has something real
+to compare against.
+
+Deliberate deviations from that reference file, dated so the reasoning
+stays traceable (matches the spec's own "(decided 9/11/26)" convention):
+
+- 2026-09-13: Low-LY cut severity raised from flat -10% to a new editable
+  threshold (config.THRESHOLDS["low_ly_cut_percent"], default 20) --
+  analysis of the live account's LY distribution showed the weekday/
+  weekend thresholds (25%/40%) already land at roughly the same bottom
+  ~20th percentile for both day types, so this doesn't widen which dates
+  get cut, just how aggressively. Suggested Note also gained a matching
+  "LY below X%" case (mirroring real historical override reasons already
+  seen on the account, e.g. "8/23/26 - LY below 25%") -- the reference
+  file's own Suggested Note formula never actually covered this case, so
+  this also just closes a real gap, not only a retune.
 """
 
 import argparse
@@ -71,6 +86,7 @@ THRESHOLD_ROWS = [
     (28, "Far-out hold: LY >=", "far_out_hold_ly_threshold_pct"),
     (29, "Far-out hold: booking-window multiple", "far_out_hold_booking_window_multiple"),
     (30, "Far-out hold: max behind-pace", "far_out_hold_max_behind_pace"),
+    (31, "Low-LY cut amount", "low_ly_cut_percent"),
 ]
 THRESHOLD_HEADER_ROW = 1
 THRESHOLD_LABEL_COL, THRESHOLD_VALUE_COL = "Z", "AA"
@@ -94,9 +110,22 @@ FILL = {
 }
 
 
+def _weekend_fragment(weekday_ref):
+    return f'OR(ISNUMBER(SEARCH("Fri",{weekday_ref})),ISNUMBER(SEARCH("Sat",{weekday_ref})))'
+
+
+def _low_ly_condition(r):
+    """Shared between Suggested Bump and Suggested Note so they can never
+    drift apart on which dates this rule actually fires for.
+    """
+    ly, pace, weekday = f"{COL['mkt_occ_ly']}{r}", f"{COL['pace_vs_stly']}{r}", f"{COL['weekday']}{r}"
+    weekend = _weekend_fragment(weekday)
+    return f"AND({ly}<IF({weekend},$AA$24,$AA$23),{pace}<$AA$25)"
+
+
 def _suggested_bump_formula(r):
-    g, f, b, t, u, m, n, k, l = (f"{COL[c]}{r}" for c in (
-        "pace_vs_stly", "mkt_occ_ly", "weekday", "days_out", "median_booking_window",
+    g, f, t, u, m, n, k, l = (f"{COL[c]}{r}" for c in (
+        "pace_vs_stly", "mkt_occ_ly", "days_out", "median_booking_window",
         "pace_ratio", "pickup_ratio", "pickup_30d", "pickup_60d",
     ))
     occ = f"{COL['occupancy']}{r}"
@@ -112,10 +141,7 @@ def _suggested_bump_formula(r):
         f'IF(AND({f}>=$AA$28,IFERROR({t}>=$AA$29*{u},FALSE()),{g}<-$AA$2,{g}>=-$AA$30),'
         f'"Hold - high LY, outside window",{level4})'
     )
-    level2 = (
-        f'IF(AND({f}<IF(OR(ISNUMBER(SEARCH("Fri",{b})),ISNUMBER(SEARCH("Sat",{b}))),$AA$24,$AA$23),'
-        f'{g}<$AA$25),"-10%",{level3})'
-    )
+    level2 = f'IF({_low_ly_condition(r)},"-"&$AA$31&"%",{level3})'
     return f'=IF({occ}=100,"",{level2})'
 
 
@@ -135,11 +161,13 @@ def _signal_formula(r):
 
 
 def _suggested_note_formula(r, note_prefix):
-    g, n = f"{COL['pace_vs_stly']}{r}", f"{COL['pickup_ratio']}{r}"
+    g, n, weekday = f"{COL['pace_vs_stly']}{r}", f"{COL['pickup_ratio']}{r}", f"{COL['weekday']}{r}"
+    applicable_ly_threshold = f"IF({_weekend_fragment(weekday)},$AA$24,$AA$23)"
     return (
-        f'=IF({g}<-$AA$2,"{note_prefix} - Pacing behind by "&TEXT({g},"0.00")&"%",'
+        f'=IF({_low_ly_condition(r)},"{note_prefix} - LY below "&{applicable_ly_threshold}&"%",'
+        f'IF({g}<-$AA$2,"{note_prefix} - Pacing behind by "&TEXT({g},"0.00")&"%",'
         f'IF({g}>$AA$2,"{note_prefix} - Pacing ahead by "&TEXT({g},"0.00")&"%",'
-        f'IF({n}>1,"{note_prefix} - Pickup demand spike","")))'
+        f'IF({n}>1,"{note_prefix} - Pickup demand spike",""))))'
     )
 
 

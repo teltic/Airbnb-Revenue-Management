@@ -243,6 +243,29 @@ Daily Pacing sheet itself, editable there without touching any formula.
 already blends both listings), but will be needed by the push phase,
 which pushes overrides per listing.
 
+### Rule changes since the reference file
+
+The spec/reference file's Suggested Bump and Suggested Note logic isn't
+frozen — tuning it is expected. Changes are dated in the code (module
+docstring in `excel_report.py`) so the reasoning stays traceable, mirroring
+the spec's own "(decided 9/11/26)" convention:
+
+- **2026-09-13**: Low-LY cut severity raised from a flat `-10%` to a new
+  editable threshold, `THRESHOLDS["low_ly_cut_percent"]` (default `20`,
+  cell `AA31` on Daily Pacing) — goal is to be more aggressive on dates
+  already confirmed genuinely slow last year. Checked against the live
+  account's actual LY distribution first: the existing weekday/weekend
+  thresholds (25%/40%) land at roughly the same bottom ~20th percentile
+  for both day types, so raising the cut doesn't widen which dates get
+  caught, just how hard. (A bump to 30% for weekday was considered and
+  rejected — it would have swept in ~35% of weekday nights, roughly
+  doubling the rule's reach, versus ~21% at 25%.) Suggested Note gained a
+  matching `"<date> - LY below X%"` case — the reference file's own
+  formula never actually covered this, even though it's exactly the
+  reason text already seen on real historical overrides in the account
+  (e.g. `"8/23/26 - LY below 25%"`), so this closes a real gap alongside
+  the retune.
+
 ## Daily automation (Windows Task Scheduler)
 
 `run_daily.bat` runs the data pull and Excel generation back to back,

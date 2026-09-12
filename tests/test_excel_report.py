@@ -17,9 +17,15 @@ from pacing_tracker.excel_report import (
 # (Daily_Pacing_Pickup_9.11.26.xlsx, row 2) -- these are regression anchors,
 # not formulas we designed independently, so a match here means we've
 # reproduced their actual working logic, not just something equivalent.
+#
+# Two exceptions, both deliberate deviations decided 2026-09-13 (see the
+# module docstring in excel_report.py for the full reasoning): the Low-LY
+# cut's amount is now the editable $AA$31 instead of a hardcoded "-10%",
+# and Suggested Note gained a matching "LY below X%" case the reference
+# file's own formula never actually had.
 REFERENCE_SUGGESTED_BUMP_ROW2 = (
     '=IF(C2=100,"",IF(AND(F2<IF(OR(ISNUMBER(SEARCH("Fri",B2)),ISNUMBER(SEARCH("Sat",B2))),'
-    '$AA$24,$AA$23),G2<$AA$25),"-10%",IF(AND(F2>=$AA$28,IFERROR(T2>=$AA$29*U2,FALSE()),'
+    '$AA$24,$AA$23),G2<$AA$25),"-"&$AA$31&"%",IF(AND(F2>=$AA$28,IFERROR(T2>=$AA$29*U2,FALSE()),'
     'G2<-$AA$2,G2>=-$AA$30),"Hold - high LY, outside window",IF(AND(G2<-$AA$2,N2>1),'
     '"⚠ Mixed – review",IF(G2<-$AA$2,"-"&IF(M2>2.5,20,IF(M2>1.5,10,5))&"%",'
     'IF(AND(N2>1,G2<=$AA$2,T2<=U2),"Hold - within booking window",'
@@ -32,9 +38,11 @@ REFERENCE_SIGNAL_ROW2 = (
     'NOT(OR(H2>$AA$3,I2>$AA$4,J2>$AA$5))),"● Elevated 30/60d","")))'
 )
 REFERENCE_SUGGESTED_NOTE_ROW2 = (
-    '=IF(G2<-$AA$2,"9/11 - Pacing behind by "&TEXT(G2,"0.00")&"%",'
+    '=IF(AND(F2<IF(OR(ISNUMBER(SEARCH("Fri",B2)),ISNUMBER(SEARCH("Sat",B2))),$AA$24,$AA$23),'
+    'G2<$AA$25),"9/11 - LY below "&IF(OR(ISNUMBER(SEARCH("Fri",B2)),ISNUMBER(SEARCH("Sat",B2))),'
+    '$AA$24,$AA$23)&"%",IF(G2<-$AA$2,"9/11 - Pacing behind by "&TEXT(G2,"0.00")&"%",'
     'IF(G2>$AA$2,"9/11 - Pacing ahead by "&TEXT(G2,"0.00")&"%",'
-    'IF(N2>1,"9/11 - Pickup demand spike","")))'
+    'IF(N2>1,"9/11 - Pickup demand spike",""))))'
 )
 REFERENCE_DAYS_OUT_ROW2 = "=A2-TODAY()"
 REFERENCE_MEDIAN_BOOKING_WINDOW_ROW2 = "=IFERROR(VLOOKUP(MONTH(A2),'Booking Window'!A:C,3,FALSE()),\"\")"
@@ -82,6 +90,35 @@ class FormulaMatchesReferenceFileTest(unittest.TestCase):
         self.assertIn('SEARCH("Ahead","")', result)
         self.assertIn('SEARCH("Spike","")', result)
         self.assertIn('SEARCH("Elevated","")', result)
+
+
+class LowLyCutTest(unittest.TestCase):
+    def test_suggested_bump_and_suggested_note_share_the_identical_condition(self):
+        # Both formulas call the same _low_ly_condition() helper. Asserting
+        # the exact substring appears in both guards against a future edit
+        # accidentally forking the condition in just one place -- if that
+        # happened, the note text and the actual bump could disagree about
+        # which dates this rule fires for.
+        from pacing_tracker.excel_report import _low_ly_condition
+
+        condition = _low_ly_condition(2)
+        self.assertIn(condition, _suggested_bump_formula(2))
+        self.assertIn(condition, _suggested_note_formula(2, "9/11"))
+
+    def test_bump_references_the_editable_threshold_not_a_hardcoded_percent(self):
+        self.assertIn('"-"&$AA$31&"%"', _suggested_bump_formula(2))
+        self.assertNotIn('"-10%"', _suggested_bump_formula(2))
+
+    def test_note_names_the_applicable_day_type_threshold(self):
+        note = _suggested_note_formula(2, "9/13")
+        self.assertIn('"9/13 - LY below "&IF(', note)
+        self.assertIn("$AA$24,$AA$23", note)  # weekend threshold first, weekday fallback
+
+    def test_threshold_block_includes_low_ly_cut_percent(self):
+        wb = build_workbook([_sample_record("2026-09-12")], date(2026, 9, 12), {})
+        ws = wb["Daily Pacing"]
+        self.assertEqual(ws["Z31"].value, "Low-LY cut amount")
+        self.assertEqual(ws["AA31"].value, config.THRESHOLDS["low_ly_cut_percent"])
 
 
 def _sample_record(d, **overrides):

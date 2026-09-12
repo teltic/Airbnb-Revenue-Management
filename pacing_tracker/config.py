@@ -65,6 +65,13 @@ THRESHOLDS = {
     "pickup_60d_threshold": 14,
     "weekday_ly_cut_pct": 25,
     "weekend_ly_cut_pct": 40,
+    # The Low-LY cut's severity: originally flat -10% (see spec), raised to
+    # -20% on 2026-09-13 -- goal is to be more aggressive on dates that
+    # were already confirmed genuinely slow last year, per analysis of the
+    # live account's LY distribution (25%/40% land both day-types around
+    # the bottom ~20th percentile, so raising this doesn't widen which
+    # dates get cut, just how hard).
+    "low_ly_cut_percent": 20,
     "low_ly_override_pace": 20,
     "high_ly_raise_ease_threshold_pct": 90,
     "high_ly_raise_ease_ratio_bar": 1.5,
