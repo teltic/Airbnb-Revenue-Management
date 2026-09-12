@@ -98,11 +98,11 @@ WEEKEND_DAYS = {"Fri", "Sat"}  # per spec: weekend = Fri-Sat, weekday = Sun-Thu
 # explicit override here (the exact category key as it appears in the live
 # response) for any listing with more than one category.
 #
-# Game Room is set to "5" here because the spec notes it's still labeled
-# 5BR in PriceLabs (even though it's actually 4BR) -- so its comp set should
-# be the 5BR bucket, not whichever bucket happens to have the most listings.
-# VERIFY this against your PriceLabs account (Listing > bedroom count) the
-# first time you see the "picking X by Listings Used" warning for a listing.
+# Game Room is set to "4" -- confirmed directly against the "Bedrooms" field
+# on that listing's PriceLabs settings page (2026-09-12), which now correctly
+# shows 4 despite the property's title text still saying 5BR/2BA. VERIFY
+# this again if you ever see the "picking X by Listings Used" warning for a
+# listing -- check the same field before assuming the override is stale.
 NEIGHBORHOOD_CATEGORY_OVERRIDES = {
-    "0e251a6a-3ea4-4d32-878a-cd734591c925": "5",  # Game Room
+    "0e251a6a-3ea4-4d32-878a-cd734591c925": "4",  # Game Room
 }
