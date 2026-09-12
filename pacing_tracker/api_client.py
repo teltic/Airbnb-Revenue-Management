@@ -23,7 +23,10 @@ class PriceLabsClient:
         self.api_key = api_key or os.environ.get(config.PRICELABS_API_KEY_ENV_VAR)
         if not self.api_key:
             raise PriceLabsAPIError(
-                f"No API key found. Set the {config.PRICELABS_API_KEY_ENV_VAR} environment variable."
+                f"No API key found. Looked for a {config.PRICELABS_API_KEY_ENV_VAR} line in a "
+                f".env file in the current folder ({os.getcwd()}) or a matching environment "
+                "variable, and found neither. Create a .env file right next to this script "
+                f"containing exactly one line: {config.PRICELABS_API_KEY_ENV_VAR}=your-key-here"
             )
         self.base_url = (base_url or config.PRICELABS_API_BASE_URL).rstrip("/")
         self.session = session or requests.Session()
