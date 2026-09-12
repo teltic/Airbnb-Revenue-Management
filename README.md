@@ -21,10 +21,14 @@ implements.
       the live account.
 - [x] Push mode (`pacing_tracker/push.py`) — reads Override Request/Notes
       from a reviewed workbook and pushes them to PriceLabs as
-      date-specific percent overrides. Dry-run by default. **Not yet
-      smoke-tested against the live account** — the write endpoint's
-      exact path is an assumption (see "Known limitation" below); test
-      with `--dry-run` (the default) before ever passing `--confirm`.
+      date-specific percent overrides. Dry-run by default. Verified
+      end-to-end against the live account: a real `--confirm` push landed
+      correctly (confirmed by reading the override back from PriceLabs).
+      The "preserve a date's existing min_stay/min_price/etc. when
+      merging in a new price" path is still only unit-tested, not
+      live-verified against a real pre-existing override (the one date
+      tested live had no prior override to preserve) — see "Known
+      limitation" below.
 
 ## Setup
 
@@ -189,23 +193,27 @@ overrides and merges the new price/reason on top of whatever's already
 there, in both dry-run and real mode — only the final write is gated by
 `--confirm`.
 
-### Known limitation: the write endpoint is unverified
+### Resolved: endpoint path, and a live write confirmed
 
 Both endpoints live at `listings/{listing_id}/overrides` (GET to read,
 POST to write) — not `listing_data/{listing_id}/overrides` as first
 assumed by mirroring the internal MCP tool's own routing path, which
-404'd against the live account. Found the real path empirically (see git
-history for `scripts/check_overrides_endpoint.py`, since removed once it
-had served its purpose) by trying several plausible alternatives.
-`get_listing_date_overrides` (GET) is now confirmed working, response
-shape pulled directly from the live account. `update_listing_date_overrides`
-(POST) uses the same now-confirmed base path, but this environment can't
-reach `api.pricelabs.co` to test a real POST, and a write isn't something
-to guess-and-check with real pricing data. **Before trusting this daily:
-run without `--confirm` first (the default; sanity-check the printed
-plan), then test with `--confirm --listing-id <one listing>` on a single
-low-stakes date and verify the result via PriceLabs' own dashboard or
-`get_listing_date_overrides` before ever pushing a full batch.**
+404'd against the live account. Found the real path empirically (tried
+several plausible alternatives) once the 404 surfaced during testing.
+
+A real `--confirm` push (2026-09-12) was verified end-to-end: pushed a
+-10% override for one date/one listing, then read it back directly from
+PriceLabs (`price: "-10"`, `price_type: "percent"`, `reason: "9/12 -
+test"`, fresh `updated_at`) — confirmed correct.
+
+**One residual gap**: that test date had no pre-existing override, so it
+exercised the "create fresh" path, not the "merge onto an existing
+override without wiping its other fields" path (unit-tested in
+`tests/test_push.py`, not live-verified). Before pushing a full batch for
+the first time, it's worth testing `--confirm --listing-id <one listing>`
+once more against a date that *already has* a min_stay/min_price/etc.
+override set, and confirming via `get_listing_date_overrides` that those
+fields survived alongside the new price.
 
 ## Verified against the live account (2026-09-12)
 
