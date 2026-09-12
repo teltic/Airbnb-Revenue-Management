@@ -22,13 +22,9 @@ implements.
 - [x] Push mode (`pacing_tracker/push.py`) — reads Override Request/Notes
       from a reviewed workbook and pushes them to PriceLabs as
       date-specific percent overrides. Dry-run by default. Verified
-      end-to-end against the live account: a real `--confirm` push landed
-      correctly (confirmed by reading the override back from PriceLabs).
-      The "preserve a date's existing min_stay/min_price/etc. when
-      merging in a new price" path is still only unit-tested, not
-      live-verified against a real pre-existing override (the one date
-      tested live had no prior override to preserve) — see "Known
-      limitation" below.
+      end-to-end against the live account, both the "create fresh" and
+      "merge onto an existing override without wiping its other fields"
+      paths — see below.
 
 ## Setup
 
@@ -193,7 +189,7 @@ overrides and merges the new price/reason on top of whatever's already
 there, in both dry-run and real mode — only the final write is gated by
 `--confirm`.
 
-### Resolved: endpoint path, and a live write confirmed
+### Resolved: endpoint path, and both push paths confirmed live
 
 Both endpoints live at `listings/{listing_id}/overrides` (GET to read,
 POST to write) — not `listing_data/{listing_id}/overrides` as first
@@ -201,19 +197,20 @@ assumed by mirroring the internal MCP tool's own routing path, which
 404'd against the live account. Found the real path empirically (tried
 several plausible alternatives) once the 404 surfaced during testing.
 
-A real `--confirm` push (2026-09-12) was verified end-to-end: pushed a
--10% override for one date/one listing, then read it back directly from
-PriceLabs (`price: "-10"`, `price_type: "percent"`, `reason: "9/12 -
-test"`, fresh `updated_at`) — confirmed correct.
+Two real `--confirm` pushes (2026-09-12) were verified end-to-end by
+reading the override back from PriceLabs after each:
 
-**One residual gap**: that test date had no pre-existing override, so it
-exercised the "create fresh" path, not the "merge onto an existing
-override without wiping its other fields" path (unit-tested in
-`tests/test_push.py`, not live-verified). Before pushing a full batch for
-the first time, it's worth testing `--confirm --listing-id <one listing>`
-once more against a date that *already has* a min_stay/min_price/etc.
-override set, and confirming via `get_listing_date_overrides` that those
-fields survived alongside the new price.
+1. **Create fresh** (no prior override on that date): pushed a -10%
+   override, confirmed `price: "-10"`, `price_type: "percent"`,
+   `reason: "9/12 - test"`.
+2. **Merge onto an existing override**: after setting a 3-night min_stay
+   directly in PriceLabs for the same date, pushed the same -10% override
+   again — confirmed `min_stay: 3` (plus `min_price`/`min_price_type`/
+   `currency`, already set alongside it) survived untouched next to the
+   updated `price`.
+
+Both code paths in `push.py`'s merge logic are now live-verified, not
+just unit-tested.
 
 ## Verified against the live account (2026-09-12)
 
