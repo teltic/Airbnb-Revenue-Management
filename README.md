@@ -16,10 +16,15 @@ implements.
       Suggested Bump, Override Status, New Since Last Review), matching a
       real reference workbook the user built via chat-based Claude.
       Formulas verified by direct comparison against that file's actual
-      cell contents; **not yet smoke-tested by opening the generated file
-      in Excel/Google Sheets** (see "Known limitation" below).
-- [ ] Push mode (reads reviewed Override Request/Notes columns back to
-      PriceLabs) (later phase, separate from this one).
+      cell contents. Verified end-to-end (generated, opened in Excel, no
+      formula errors, conditional formatting renders correctly) against
+      the live account.
+- [x] Push mode (`pacing_tracker/push.py`) — reads Override Request/Notes
+      from a reviewed workbook and pushes them to PriceLabs as
+      date-specific percent overrides. Dry-run by default. **Not yet
+      smoke-tested against the live account** — the write endpoint's
+      exact path is an assumption (see "Known limitation" below); test
+      with `--dry-run` (the default) before ever passing `--confirm`.
 
 ## Setup
 
@@ -131,19 +136,71 @@ Run it:
 python3 -m pacing_tracker.excel_report --in data/pull_today.json
 ```
 
-### Known limitation: not yet opened in real Excel/Google Sheets
+### Note: this dev environment can't run LibreOffice to self-check
 
 This dev environment's LibreOffice hangs indefinitely on *any* file
 (even a trivial one-formula test), which is the tool this environment
 would normally use to mechanically verify zero formula errors before
-calling a spreadsheet done. That check could not run here. What *has* been
-done instead: every generated formula that has a real-world counterpart
-was compared character-for-character against the actual cell contents of
-the user's reference workbook (see `tests/test_excel_report.py`), and
-parens/quotes were verified balanced. That's strong evidence but not the
-same as watching it actually calculate. **First time you generate a real
-file, open it in Excel or Google Sheets and check for any `#REF!`,
-`#VALUE!`, or `#NAME?` cells** before trusting it daily.
+calling a spreadsheet done. That check could not run here, so verification
+happened two other ways instead: every generated formula that has a
+real-world counterpart was compared character-for-character against the
+actual cell contents of the user's reference workbook (see
+`tests/test_excel_report.py`), and the user opened a real generated file
+in Excel directly (2026-09-12) — no `#REF!`/`#VALUE!`/`#NAME?` errors,
+correct formulas and thresholds. One real bug was caught this way that
+the character-comparison approach couldn't have found on its own:
+conditional-format fills need color in `bgColor` with `patternType`
+unset, not the `fgColor`/`"solid"` convention for an ordinary cell fill —
+using the wrong one meant every color rule wrote successfully but
+rendered invisibly. Fixed and covered by a regression test.
+
+## Push mode
+
+`pacing_tracker/push.py` reads Override Request (column Q) and Notes
+(column R) from a reviewed workbook and pushes them to PriceLabs as
+date-specific `price_type: "percent"` overrides, per the spec's push
+workflow:
+
+- Blank Override Request cells and any date already in the past are
+  skipped.
+- Pushed to **both** configured listings by default (`--listing-id` to
+  restrict to one) — Pace/Pickup are market-level signals shared by both
+  listings, not listing-specific.
+- Notes text becomes the override's `reason` (truncated to 255 chars,
+  PriceLabs' own limit).
+- **Dry-run by default.** Nothing is ever written to PriceLabs unless you
+  pass `--confirm`.
+
+```
+python3 -m pacing_tracker.push --workbook path/to/Daily_Pacing_Pickup_9.12.26.xlsx              # dry run
+python3 -m pacing_tracker.push --workbook path/to/Daily_Pacing_Pickup_9.12.26.xlsx --confirm     # actually pushes
+```
+
+**Why even a dry run makes API calls**: PriceLabs bundles multiple
+settings into one override object per date (confirmed against a real
+override on the live account: `{"date": "2026-09-12", "price": "-10",
+"price_type": "percent", "min_stay": 2, "min_price": 650,
+"min_price_type": "fixed", "currency": "USD", "reason": "..."}`), and the
+update endpoint replaces a date's override wholesale — it doesn't merge
+field-by-field. So a bare `{date, price}` push would silently wipe any
+existing `min_stay`/`min_price`/etc. on that date. To prevent that,
+`push.py` first does a **read-only** GET of each listing's current
+overrides and merges the new price/reason on top of whatever's already
+there, in both dry-run and real mode — only the final write is gated by
+`--confirm`.
+
+### Known limitation: the write endpoint is unverified
+
+`get_listing_date_overrides` — confirmed working, response shape pulled
+directly from the live account. `update_listing_date_overrides` is
+built the same way as every other endpoint here (matching the pattern of
+the ones already confirmed), but this environment can't reach
+`api.pricelabs.co` to test a real POST, and a write isn't something to
+guess-and-check with real pricing data. **Before trusting this daily:
+run without `--confirm` first (the default; sanity-check the printed
+plan), then test with `--confirm --listing-id <one listing>` on a single
+low-stakes date and verify the result via PriceLabs' own dashboard or
+`get_listing_date_overrides` before ever pushing a full batch.**
 
 ## Verified against the live account (2026-09-12)
 

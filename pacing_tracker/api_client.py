@@ -68,3 +68,14 @@ class PriceLabsClient:
 
     def poll_report_builder_data(self, request_id):
         return self._post("report_builder/poll", json_body={"request_id": request_id})
+
+    def get_listing_date_overrides(self, listing_id, pms, start_date=None, end_date=None):
+        params = {"pms": pms}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return self._get(f"listing_data/{listing_id}/overrides", params=params)
+
+    def update_listing_date_overrides(self, listing_id, pms, overrides):
+        return self._post(f"listing_data/{listing_id}/overrides", json_body={"pms": pms, "overrides": overrides})
