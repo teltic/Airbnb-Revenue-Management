@@ -41,12 +41,15 @@ PRICELABS_API_KEY_ENV_VAR = "PRICELABS_API_KEY"
 
 FORECAST_DAYS = 365
 
-# --- Local snapshot cache (used to self-compute pickup) ---------------------
+# --- Report Builder source --------------------------------------------------
+# Confirmed reachable via a plain Customer API key (2026-09-12, see
+# scripts/check_report_builder_access.py). This template already returns
+# Occupancy/Market Occupancy/LY/STLY/Pickup 3-7-14-30-60d pre-computed and
+# blended across both listings -- looked up by name (not a hardcoded
+# template_id) since that's stable even if the account's template list
+# changes.
 
-SNAPSHOT_CACHE_PATH = os.environ.get(
-    "PACING_SNAPSHOT_CACHE_PATH",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "snapshot_cache.json"),
-)
+REPORT_BUILDER_TEMPLATE_NAME = "Master Sheet - TB"
 
 PICKUP_WINDOWS_DAYS = [3, 7, 14, 30, 60]
 
@@ -88,21 +91,3 @@ MEDIAN_BOOKING_WINDOW_BY_MONTH = {
 }
 
 WEEKEND_DAYS = {"Fri", "Sat"}  # per spec: weekend = Fri-Sat, weekday = Sun-Thu
-
-# --- neighborhood_data comp-set category overrides --------------------------
-# Some accounts' market dashboards segment comp sets by bedroom count, so a
-# listing's neighborhood_data response can have several "Category" buckets
-# (e.g. "3", "4", "5", "9") instead of one. When that happens, picking by
-# "most listings used" is a guess -- it can easily land on a bucket that
-# doesn't match how the listing is actually configured to be priced. Set an
-# explicit override here (the exact category key as it appears in the live
-# response) for any listing with more than one category.
-#
-# Game Room is set to "4" -- confirmed directly against the "Bedrooms" field
-# on that listing's PriceLabs settings page (2026-09-12), which now correctly
-# shows 4 despite the property's title text still saying 5BR/2BA. VERIFY
-# this again if you ever see the "picking X by Listings Used" warning for a
-# listing -- check the same field before assuming the override is stale.
-NEIGHBORHOOD_CATEGORY_OVERRIDES = {
-    "0e251a6a-3ea4-4d32-878a-cd734591c925": "4",  # Game Room
-}

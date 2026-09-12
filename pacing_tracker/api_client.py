@@ -1,9 +1,7 @@
 """Thin wrapper around the PriceLabs Customer API.
 
-NOTE: the exact base URL and auth header are our best-known default and have
-not yet been smoke-tested against a live key from this account (see
-README "Verifying API access" section). If a call fails with 401/404, check
-those two things first via PRICELABS_API_BASE_URL and PRICELABS_API_KEY.
+Base URL (https://api.pricelabs.co/v1) and the X-API-Key auth header are
+confirmed working against the live account (see README).
 """
 
 import os
@@ -62,29 +60,7 @@ class PriceLabsClient:
     def _post(self, path, json_body=None):
         return self._request("POST", path, json_body=json_body)
 
-    def get_neighborhood_data(self, listing_id, pms):
-        """Per-listing comp-set market snapshot, including a daily
-        Occupancy / Occupancy_LY / Occupancy_STLY curve for future dates.
-        """
-        return self._get("neighborhood_data", params={"listing_id": listing_id, "pms": pms})
-
-    def get_reservations(self, pms, start_date, end_date, listing_id=None, limit=None, offset=None):
-        """Reservations whose stay dates fall in [start_date, end_date)."""
-        params = {"pms": pms, "start_date": start_date, "end_date": end_date}
-        if listing_id:
-            params["listing_id"] = listing_id
-        if limit is not None:
-            params["limit"] = limit
-        if offset is not None:
-            params["offset"] = offset
-        return self._get("reservation_data", params=params)
-
     def get_report_builder_templates(self):
-        """DIAGNOSTIC ONLY (see scripts/check_report_builder_access.py) --
-        this endpoint is only known to exist on PriceLabs' internal/session
-        tooling; whether it's also reachable from a plain Customer API key
-        is exactly what that script is checking. Not used by data_pull.py.
-        """
         return self._get("report_builder/templates")
 
     def get_report_builder_data(self, template_id):
