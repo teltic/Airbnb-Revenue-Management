@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from pacing_tracker.data_pull import _booked_dates, _parse_occupancy_curve, run_pull
+from pacing_tracker.data_pull import _booked_dates, _extract_reservation_rows, _parse_occupancy_curve, run_pull
 from pacing_tracker.snapshot_cache import SnapshotStore
 
 
@@ -57,6 +57,22 @@ class ParseOccupancyCurveTest(unittest.TestCase):
 
     def test_missing_block_returns_empty(self):
         self.assertEqual(_parse_occupancy_curve({"data": {}}), {})
+
+
+class ExtractReservationRowsTest(unittest.TestCase):
+    def test_flat_shape_data_is_the_row_list(self):
+        # what the live Customer API actually returns: "data" IS the array,
+        # with next_page as a sibling of "data" rather than nested under it.
+        resp = {"data": [{"reservation_id": "R1"}], "next_page": True}
+        rows, next_page = _extract_reservation_rows(resp)
+        self.assertEqual(rows, [{"reservation_id": "R1"}])
+        self.assertTrue(next_page)
+
+    def test_nested_shape_data_wraps_rows_and_next_page(self):
+        resp = {"data": {"data": [{"reservation_id": "R1"}], "next_page": False}}
+        rows, next_page = _extract_reservation_rows(resp)
+        self.assertEqual(rows, [{"reservation_id": "R1"}])
+        self.assertFalse(next_page)
 
 
 class BookedDatesTest(unittest.TestCase):

@@ -18,7 +18,7 @@ import os
 from datetime import date, datetime, timedelta
 
 from . import config
-from .api_client import PriceLabsClient
+from .api_client import PriceLabsAPIError, PriceLabsClient
 from .snapshot_cache import SnapshotStore
 
 logger = logging.getLogger(__name__)
@@ -102,13 +102,26 @@ def _fetch_all_reservations(client, pms, listing_id, start_date, end_date):
             limit=limit,
             offset=offset,
         )
-        payload = resp.get("data", resp)
-        rows = payload.get("data", [])
+        rows, next_page = _extract_reservation_rows(resp)
         all_rows.extend(rows)
-        if not payload.get("next_page") or not rows:
+        if not next_page or not rows:
             break
         offset += limit
     return all_rows
+
+
+def _extract_reservation_rows(resp):
+    """reservation_data's "data" field can apparently be either the row
+    list directly (with next_page/pagination info as a sibling of "data"),
+    or a nested object like {"data": [...], "next_page": ...} -- handle
+    both rather than assuming one.
+    """
+    data_field = resp.get("data", resp)
+    if isinstance(data_field, list):
+        return data_field, bool(resp.get("next_page"))
+    if isinstance(data_field, dict):
+        return data_field.get("data", []), bool(data_field.get("next_page"))
+    raise PriceLabsAPIError(f"Unexpected reservation_data response shape: {resp!r}")
 
 
 def _booked_dates(reservations):
