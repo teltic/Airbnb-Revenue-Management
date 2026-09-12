@@ -7,6 +7,14 @@ data_pull.py / the Excel formula generator, never hardcoded into the logic.
 
 import os
 
+from dotenv import load_dotenv
+
+# Loads a .env file (if present) in the current working directory into
+# os.environ, so PRICELABS_API_KEY can just live in a local .env file
+# instead of requiring a terminal/setx step. Does nothing if no .env exists
+# or the variable is already set some other way.
+load_dotenv()
+
 # --- Listings (PMS: smartbnb / Hospitable for both) -----------------------
 
 LISTINGS = [

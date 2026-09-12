@@ -19,8 +19,18 @@ implements.
 ```
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-export PRICELABS_API_KEY=...   # from PriceLabs Account Settings > API Details
 ```
+
+Then create a file named `.env` in the project root (same folder as this
+README) containing one line:
+
+```
+PRICELABS_API_KEY=your-actual-key-here
+```
+
+The script loads it automatically — no terminal environment-variable step
+needed. `.env` is already excluded from git via `.gitignore`, so it never
+gets committed.
 
 Run the tests (no API key or network needed — they run against fake/mocked
 responses shaped like real API replies):
