@@ -76,13 +76,13 @@ class FetchReportRowsTest(unittest.TestCase):
 
 
 class ParseRowTest(unittest.TestCase):
-    def test_maps_fields_and_derives_weekday_from_date(self):
-        # Weekday label format ("04.Thu") is ignored in favor of computing
-        # it from Date directly -- more robust than parsing PriceLabs' format.
-        row = _row("2026-09-12", "some-unexpected-format", Occupancy=100.0)
+    def test_maps_fields_and_passes_weekday_through_raw(self):
+        # PriceLabs' own Weekday format ("05.Fri") is passed through as-is
+        # to match the reference workbook -- not recomputed from Date.
+        row = _row("2026-09-12", "07.Sat", Occupancy=100.0)
         record = _parse_row(row)
         self.assertEqual(record["date"], "2026-09-12")
-        self.assertEqual(record["weekday"], "Sat")
+        self.assertEqual(record["weekday"], "07.Sat")
         self.assertEqual(record["occupancy_pct"], 100.0)
         self.assertEqual(record["market_occ_pct"], 40.0)
         self.assertEqual(record["market_occ_pct_ly"], 35.0)

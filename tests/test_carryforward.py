@@ -1,0 +1,79 @@
+import os
+import tempfile
+import unittest
+from datetime import date
+
+import openpyxl
+
+from pacing_tracker.carryforward import (
+    find_previous_file,
+    load_previous_state,
+    load_previous_state_for_folder,
+    parse_filename_date,
+)
+
+
+def _write_fake_workbook(path, rows):
+    """rows: list of (date, signal, override_request, notes) -- mimics the
+    Daily Pacing sheet's columns A/P/Q/R (indices 0/15/16/17).
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Daily Pacing"
+    ws.append(["Date"] + [f"col{i}" for i in range(1, 24)])  # A..X header
+    for d, signal, override_request, notes in rows:
+        row = [d] + [None] * 23
+        row[15] = signal
+        row[16] = override_request
+        row[17] = notes
+        ws.append(row)
+    wb.save(path)
+
+
+class ParseFilenameDateTest(unittest.TestCase):
+    def test_parses_reference_naming_convention(self):
+        self.assertEqual(parse_filename_date("Daily_Pacing_Pickup_9.11.26.xlsx"), date(2026, 9, 11))
+
+    def test_returns_none_for_non_matching_name(self):
+        self.assertIsNone(parse_filename_date("something_else.xlsx"))
+
+
+class FindPreviousFileTest(unittest.TestCase):
+    def test_picks_most_recent_file_strictly_before_given_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ["Daily_Pacing_Pickup_9.10.26.xlsx", "Daily_Pacing_Pickup_9.11.26.xlsx", "Daily_Pacing_Pickup_9.12.26.xlsx"]:
+                open(os.path.join(tmp, name), "w").close()
+            found = find_previous_file(tmp, date(2026, 9, 12))
+            self.assertEqual(os.path.basename(found), "Daily_Pacing_Pickup_9.11.26.xlsx")
+
+    def test_returns_none_when_no_earlier_file_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "Daily_Pacing_Pickup_9.12.26.xlsx"), "w").close()
+            self.assertIsNone(find_previous_file(tmp, date(2026, 9, 12)))
+
+
+class LoadPreviousStateTest(unittest.TestCase):
+    def test_reads_signal_override_and_notes_by_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prev.xlsx")
+            _write_fake_workbook(
+                path,
+                [
+                    (date(2026, 9, 11), "▼ Behind ⚡ Spike", -0.1, "9/11 - behind"),
+                    (date(2026, 9, 12), "✓ Booked", None, None),
+                ],
+            )
+            state = load_previous_state(path)
+            self.assertEqual(state["2026-09-11"]["signal"], "▼ Behind ⚡ Spike")
+            self.assertEqual(state["2026-09-11"]["override_request"], -0.1)
+            self.assertEqual(state["2026-09-11"]["notes"], "9/11 - behind")
+            self.assertEqual(state["2026-09-12"]["signal"], "✓ Booked")
+            self.assertIsNone(state["2026-09-12"]["override_request"])
+
+    def test_for_folder_returns_empty_dict_when_no_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(load_previous_state_for_folder(tmp, date(2026, 9, 12)), {})
+
+
+if __name__ == "__main__":
+    unittest.main()

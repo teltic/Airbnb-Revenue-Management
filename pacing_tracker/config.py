@@ -38,8 +38,9 @@ PRICELABS_API_BASE_URL = os.environ.get(
 PRICELABS_API_KEY_ENV_VAR = "PRICELABS_API_KEY"
 
 # --- Date range for the daily pull -----------------------------------------
+# 366, not 365: the reference workbook runs today through +365 days inclusive.
 
-FORECAST_DAYS = 365
+FORECAST_DAYS = 366
 
 # --- Report Builder source --------------------------------------------------
 # Confirmed reachable via a plain Customer API key (2026-09-12, see
@@ -70,6 +71,11 @@ THRESHOLDS = {
     "far_out_hold_ly_threshold_pct": 85,
     "far_out_hold_booking_window_multiple": 2,
     "far_out_hold_max_behind_pace": 10,
+    # Visual-only banding for the Mkt Occ % LY column -- distinct from
+    # weekday_ly_cut_pct/weekend_ly_cut_pct above (those drive the Suggested
+    # Bump ladder; these two just color the LY cell red/green in the sheet).
+    "ly_occ_visual_red_below": 25,
+    "ly_occ_visual_green_above": 75,
 }
 
 # --- Median booking window by month (spec: re-paste periodically) -----------
@@ -91,3 +97,17 @@ MEDIAN_BOOKING_WINDOW_BY_MONTH = {
 }
 
 WEEKEND_DAYS = {"Fri", "Sat"}  # per spec: weekend = Fri-Sat, weekday = Sun-Thu
+
+# --- Excel output -----------------------------------------------------------
+# Point this at a folder on disk that the Google Drive desktop app syncs --
+# the script just reads/writes plain files there; Drive handles the sync.
+# No Google API/OAuth needed. Set via env var since this path is specific to
+# your PC (e.g. "C:\\Users\\telti\\My Drive\\Pacing Tracker").
+DRIVE_SYNC_FOLDER = os.environ.get("PACING_DRIVE_SYNC_FOLDER", "data")
+
+# Matches the reference file's own naming: "Daily_Pacing_Pickup_9.11.26.xlsx"
+# (no leading zeros on month/day, 2-digit year).
+
+
+def output_filename(pull_date):
+    return f"Daily_Pacing_Pickup_{pull_date.month}.{pull_date.day}.{pull_date.strftime('%y')}.xlsx"

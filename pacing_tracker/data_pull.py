@@ -32,6 +32,7 @@ ROW_FIELD_MAP = {
     "pickup_14d": "Average Market Occupancy Pickup 14",
     "pickup_30d": "Average Market Occupancy Pickup 30",
     "pickup_60d": "Average Market Occupancy Pickup 60",
+    "events": "Events",
 }
 
 
@@ -78,8 +79,11 @@ def fetch_report_rows(client, template_name=None, poll_interval_seconds=3, max_p
 
 
 def _parse_row(row):
-    row_date = datetime.strptime(row["Date"], "%Y-%m-%d").date()
-    record = {"date": row["Date"], "weekday": row_date.strftime("%a")}
+    # Pass PriceLabs' own Weekday string through as-is (e.g. "05.Fri") rather
+    # than deriving our own -- matches the reference workbook, and the Excel
+    # formulas that check for weekends just SEARCH() for "Fri"/"Sat" as a
+    # substring, so either format would work; no reason to diverge.
+    record = {"date": row["Date"], "weekday": row.get("Weekday")}
     for out_field, source_field in ROW_FIELD_MAP.items():
         record[out_field] = row.get(source_field)
     return record

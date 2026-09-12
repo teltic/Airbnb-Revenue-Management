@@ -7,11 +7,17 @@ implements.
 
 ## Status
 
-- [x] Data pull (`pacing_tracker/`) — pulls Occupancy, Market Occupancy,
-      LY/STLY, and Pickup 3/7/14/30/60d for the next 365 days, pre-blended
-      across both listings by PriceLabs itself. Verified end-to-end
-      against the live account.
-- [ ] Excel report generation with live formulas (next phase).
+- [x] Data pull (`pacing_tracker/data_pull.py`) — pulls Occupancy, Market
+      Occupancy, LY/STLY, and Pickup 3/7/14/30/60d for the next 366 days
+      (today through +365), pre-blended across both listings by PriceLabs
+      itself. Verified end-to-end against the live account.
+- [x] Excel report generation (`pacing_tracker/excel_report.py`) — builds
+      the Daily Pacing workbook with live formulas (Pace vs STLY, Signal,
+      Suggested Bump, Override Status, New Since Last Review), matching a
+      real reference workbook the user built via chat-based Claude.
+      Formulas verified by direct comparison against that file's actual
+      cell contents; **not yet smoke-tested by opening the generated file
+      in Excel/Google Sheets** (see "Known limitation" below).
 - [ ] Push mode (reads reviewed Override Request/Notes columns back to
       PriceLabs) (later phase, separate from this one).
 
@@ -73,9 +79,71 @@ Average Market Occupancy Pickup 3/7/14/30/60
 not a hardcoded template_id, since that's stable even if the account's
 template list changes), fetches it (polling if PriceLabs computes it
 asynchronously), and filters/sorts rows down to the requested date window.
-Weekday is recomputed from `Date` directly rather than trusting PriceLabs'
-own weekday string format, since we need a plain 3-letter name to match
-`config.WEEKEND_DAYS`.
+Weekday is passed through exactly as PriceLabs returns it (e.g. `"05.Fri"`)
+to match the reference workbook, rather than recomputed from `Date`.
+
+## Excel report generation
+
+`pacing_tracker/excel_report.py` reads a `data_pull.py` JSON output and
+builds the "Daily Pacing" workbook. It's built to match a real reference
+file (`Daily_Pacing_Pickup_9.11.26.xlsx`) the user had already produced via
+chat-based Claude — same headers, same formulas, same threshold cell
+layout (`Z1:AA30` on Daily Pacing), same conditional formatting. The
+Suggested Bump, Signal, Override Status, and New Since Last Review formulas
+in `excel_report.py` were extracted verbatim from that file (see the
+`REFERENCE_*` constants in `tests/test_excel_report.py`) and are only
+templated by row number — not redesigned or reverse-engineered from the
+spec text alone.
+
+A few things worth knowing about how it works:
+
+- **Occupancy/Market Occ/LY/STLY/Pickup are raw pulled values, not
+  formulas** — they can't recalculate from anything else, they *are* the
+  data. Pace vs STLY, the two ratio columns, Suggested Bump, Signal, Days
+  Out, Median Booking Window, Override Status, and New Since Last Review
+  are all live formulas.
+- **Suggested Note bakes in the pull date as a literal string** (e.g.
+  `"9/12 - Pacing behind by..."`), matching the reference file — it's a
+  timestamp of when the observation was made, not a `TODAY()` formula that
+  would silently reword itself every time the file is reopened.
+- **Override Request/Notes are carried forward** from the most recent
+  earlier `Daily_Pacing_Pickup_*.xlsx` in `config.DRIVE_SYNC_FOLDER`, keyed
+  by date (see `carryforward.py`) — a rebuild never wipes manual input.
+  With no prior file (e.g. the very first run), these are just blank.
+- **New Since Last Review also needs carry-forward**: it bakes the
+  *previous* file's Signal for that date into the formula as a literal
+  string, compared against the *live* Signal formula for the same row —
+  so it's really asking "does today's live Signal show something the
+  snapshot from last time didn't." A date with no prior snapshot compares
+  against `""`.
+- `config.DRIVE_SYNC_FOLDER` should point at a folder synced by the Google
+  Drive desktop app — this only ever touches plain files on disk, no
+  Drive API/OAuth. Set via the `PACING_DRIVE_SYNC_FOLDER` env var (or in
+  `.env`, same as the API key); defaults to `data/` if unset.
+- Only the **Daily Pacing** and **Booking Window** sheets are generated —
+  the reference file's How To Use / Daily Process / Properties & Overrides
+  tabs were left out (by choice) to keep the generator focused on the data
+  itself.
+
+Run it:
+
+```
+python3 -m pacing_tracker.excel_report --in data/pull_today.json
+```
+
+### Known limitation: not yet opened in real Excel/Google Sheets
+
+This dev environment's LibreOffice hangs indefinitely on *any* file
+(even a trivial one-formula test), which is the tool this environment
+would normally use to mechanically verify zero formula errors before
+calling a spreadsheet done. That check could not run here. What *has* been
+done instead: every generated formula that has a real-world counterpart
+was compared character-for-character against the actual cell contents of
+the user's reference workbook (see `tests/test_excel_report.py`), and
+parens/quotes were verified balanced. That's strong evidence but not the
+same as watching it actually calculate. **First time you generate a real
+file, open it in Excel or Google Sheets and check for any `#REF!`,
+`#VALUE!`, or `#NAME?` cells** before trusting it daily.
 
 ## Verified against the live account (2026-09-12)
 
@@ -92,7 +160,9 @@ own weekday string format, since we need a plain 3-letter name to match
 
 Listings, thresholds, and the median-booking-window reference table all
 live in `pacing_tracker/config.py` as plain data — no thresholds are
-hardcoded into the pacing/signal/bump logic (that logic is the next
-phase, once the Excel generation step is built). `LISTINGS` isn't used by
-the data-pull stage (Report Builder already blends both listings), but
-will be needed by the push phase, which pushes overrides per listing.
+hardcoded into the pacing/signal/bump logic; they're all cell references
+(`$AA$2` etc.) into the threshold block `excel_report.py` writes onto the
+Daily Pacing sheet itself, editable there without touching any formula.
+`LISTINGS` isn't used by the data-pull or Excel stages (Report Builder
+already blends both listings), but will be needed by the push phase,
+which pushes overrides per listing.
