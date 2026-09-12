@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+data/pull_*.json
+data/snapshot_cache.json
