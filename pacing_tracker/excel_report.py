@@ -251,7 +251,13 @@ def _apply_conditional_formatting(ws, last_row):
     full_range = f"A2:{LAST_DATA_COL}{last_row}"
 
     def fmt(fill_key):
-        return PatternFill("solid", fgColor=FILL[fill_key])
+        # Conditional-format (differential-style) fills store their visible
+        # color in bgColor with patternType left unset -- confirmed against
+        # the reference file's actual dxf records. A normal-cell-fill-style
+        # PatternFill("solid", fgColor=...) writes the color to the field
+        # real spreadsheet apps ignore for conditional formatting, so the
+        # rule silently renders with no visible fill.
+        return PatternFill(bgColor=FILL[fill_key])
 
     ws.conditional_formatting.add(
         full_range, FormulaRule(formula=[f"$C2=100"], fill=fmt("fully_booked"))

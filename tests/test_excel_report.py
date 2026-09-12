@@ -142,6 +142,26 @@ class BuildWorkbookTest(unittest.TestCase):
         self.assertEqual(ws["B2"].value, "Jan")
         self.assertEqual(ws["C2"].value, config.MEDIAN_BOOKING_WINDOW_BY_MONTH[1])
 
+    def test_conditional_format_fills_use_bgcolor_not_fgcolor(self):
+        # Regression test: Excel/Google Sheets read a conditional format's
+        # visible color from the dxf's bgColor with patternType unset, NOT
+        # fgColor + patternType="solid" (the convention for an ordinary
+        # cell fill). Using the wrong convention here previously produced
+        # a workbook where every conditional-format color silently failed
+        # to render, confirmed against the reference file's actual dxf
+        # records.
+        wb = build_workbook([_sample_record("2026-09-12")], date(2026, 9, 12), {})
+        ws = wb["Daily Pacing"]
+        checked_any = False
+        for rng, rules in ws.conditional_formatting._cf_rules.items():
+            for rule in rules:
+                if rule.dxf is None or rule.dxf.fill is None:
+                    continue
+                checked_any = True
+                self.assertIsNotNone(rule.dxf.fill.bgColor.rgb, f"{rng.sqref} has no bgColor set")
+                self.assertIsNone(rule.dxf.fill.patternType, f"{rng.sqref} sets patternType, should be unset")
+        self.assertTrue(checked_any, "no formula-rule fills found to check")
+
 
 if __name__ == "__main__":
     unittest.main()
