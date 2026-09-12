@@ -28,6 +28,7 @@ import openpyxl
 
 from . import config
 from .api_client import PriceLabsClient
+from .carryforward import find_latest_file
 
 REASON_MAX_LEN = 255
 
@@ -124,7 +125,12 @@ def push_overrides(client, planned, listings=None, dry_run=True):
 
 def main():
     parser = argparse.ArgumentParser(description="Push reviewed Override Request/Notes to PriceLabs.")
-    parser.add_argument("--workbook", required=True, help="Path to the reviewed Daily Pacing xlsx")
+    parser.add_argument(
+        "--workbook",
+        default=None,
+        help="Path to the reviewed Daily Pacing xlsx. Defaults to the most recent "
+        "Daily_Pacing_Pickup_*.xlsx in config.DRIVE_SYNC_FOLDER.",
+    )
     parser.add_argument(
         "--listing-id",
         default=None,
@@ -143,7 +149,17 @@ def main():
         if not listings:
             raise SystemExit(f"No configured listing with listing_id={args.listing_id!r}")
 
-    planned = read_planned_overrides(args.workbook)
+    workbook_path = args.workbook
+    if workbook_path is None:
+        workbook_path = find_latest_file(config.DRIVE_SYNC_FOLDER)
+        if workbook_path is None:
+            raise SystemExit(
+                f"No Daily_Pacing_Pickup_*.xlsx found in {config.DRIVE_SYNC_FOLDER!r}. "
+                "Pass --workbook explicitly, or check PACING_DRIVE_SYNC_FOLDER in your .env."
+            )
+        print(f"Using most recent workbook: {workbook_path}")
+
+    planned = read_planned_overrides(workbook_path)
     if not planned:
         print("No overrides to push (Override Request is blank for every row, or all such dates are in the past).")
         return

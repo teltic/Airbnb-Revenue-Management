@@ -30,19 +30,34 @@ def parse_filename_date(filename):
         return None
 
 
-def find_previous_file(folder, before_date):
-    """Most recent Daily_Pacing_Pickup_*.xlsx in folder strictly before
-    before_date, or None if there isn't one.
+def _dated_files(folder):
+    """[(file_date, path), ...] for every Daily_Pacing_Pickup_*.xlsx in
+    folder whose name parses to a date, sorted oldest to newest.
     """
     candidates = []
     for path in glob.glob(os.path.join(folder, "Daily_Pacing_Pickup_*.xlsx")):
         file_date = parse_filename_date(os.path.basename(path))
-        if file_date is not None and file_date < before_date:
+        if file_date is not None:
             candidates.append((file_date, path))
-    if not candidates:
-        return None
     candidates.sort()
-    return candidates[-1][1]
+    return candidates
+
+
+def find_previous_file(folder, before_date):
+    """Most recent Daily_Pacing_Pickup_*.xlsx in folder strictly before
+    before_date, or None if there isn't one.
+    """
+    earlier = [(d, p) for d, p in _dated_files(folder) if d < before_date]
+    return earlier[-1][1] if earlier else None
+
+
+def find_latest_file(folder):
+    """Most recent Daily_Pacing_Pickup_*.xlsx in folder (by filename date,
+    not filesystem mtime -- Drive sync can touch mtimes), or None if the
+    folder has none.
+    """
+    dated = _dated_files(folder)
+    return dated[-1][1] if dated else None
 
 
 def load_previous_state(path):

@@ -6,6 +6,7 @@ from datetime import date
 import openpyxl
 
 from pacing_tracker.carryforward import (
+    find_latest_file,
     find_previous_file,
     load_previous_state,
     load_previous_state_for_folder,
@@ -50,6 +51,26 @@ class FindPreviousFileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "Daily_Pacing_Pickup_9.12.26.xlsx"), "w").close()
             self.assertIsNone(find_previous_file(tmp, date(2026, 9, 12)))
+
+
+class FindLatestFileTest(unittest.TestCase):
+    def test_picks_the_most_recent_by_filename_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ["Daily_Pacing_Pickup_9.10.26.xlsx", "Daily_Pacing_Pickup_9.12.26.xlsx", "Daily_Pacing_Pickup_9.11.26.xlsx"]:
+                open(os.path.join(tmp, name), "w").close()
+            found = find_latest_file(tmp)
+            self.assertEqual(os.path.basename(found), "Daily_Pacing_Pickup_9.12.26.xlsx")
+
+    def test_returns_none_when_folder_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(find_latest_file(tmp))
+
+    def test_ignores_files_that_dont_match_the_naming_convention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "Daily_Pacing_Pickup_9.12.26.xlsx"), "w").close()
+            open(os.path.join(tmp, "some_other_file.xlsx"), "w").close()
+            found = find_latest_file(tmp)
+            self.assertEqual(os.path.basename(found), "Daily_Pacing_Pickup_9.12.26.xlsx")
 
 
 class LoadPreviousStateTest(unittest.TestCase):

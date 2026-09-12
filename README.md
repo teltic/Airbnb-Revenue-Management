@@ -170,11 +170,20 @@ workflow:
   PriceLabs' own limit).
 - **Dry-run by default.** Nothing is ever written to PriceLabs unless you
   pass `--confirm`.
+- `--workbook` is optional — omit it and `push.py` finds the most recent
+  `Daily_Pacing_Pickup_*.xlsx` in `config.DRIVE_SYNC_FOLDER` on its own
+  (`carryforward.find_latest_file`), so you never have to type a filename.
 
 ```
-python3 -m pacing_tracker.push --workbook path/to/Daily_Pacing_Pickup_9.12.26.xlsx              # dry run
-python3 -m pacing_tracker.push --workbook path/to/Daily_Pacing_Pickup_9.12.26.xlsx --confirm     # actually pushes
+python3 -m pacing_tracker.push                # dry run, auto-finds the latest file, both listings
+python3 -m pacing_tracker.push --confirm       # actually pushes
 ```
+
+**`push_latest.bat`** wraps this into a double-click button: it runs the
+dry run, prints the plan, and asks you to type `YES` before running the
+real `--confirm` push — a "one click" flow that still shows you what's
+about to happen and requires a deliberate confirmation, rather than
+silently pushing the moment you double-click it.
 
 **Why even a dry run makes API calls**: PriceLabs bundles multiple
 settings into one override object per date (confirmed against a real
