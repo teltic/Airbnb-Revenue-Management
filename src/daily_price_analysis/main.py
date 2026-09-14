@@ -1,0 +1,202 @@
+"""CLI entrypoint: pull live PriceLabs data for every configured listing and
+(re)generate the "Daily Low & High Price Analysis" workbook.
+
+Usage:
+    python -m daily_price_analysis.main [--output PATH] [--days N]
+        [--bookings-csv PATH] [--listings-config PATH]
+
+Safe to rerun repeatedly (e.g. weekly): Notes and the Promo Tracker tabs are
+read back out of the existing output file before it's overwritten, then
+spliced into the freshly-generated data by exact date match. Active
+Overrides tabs are always fully refreshed from the API.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import logging
+import sys
+from pathlib import Path
+
+from . import config as cfg
+from .bookings import (
+    ReservationDataTruncatedError,
+    fetch_reservations_verified,
+    nightly_adr_series,
+)
+from .compute import build_date_rows, compute_category_aggregates, ly_ly2_series
+from .calendar import parse_calendar
+from .market import parse_market_data
+from .overrides import parse_overrides
+from .pricelabs_client import PriceLabsAPIError, PriceLabsClient
+from .promo import PromoRow, build_promo_lookup
+from .workbook_build import (
+    build_compset_sheet,
+    build_how_this_works_sheet,
+    build_overrides_sheet,
+    build_promo_sheet,
+    build_property_sheet,
+    new_workbook,
+)
+from .workbook_state import load_preserved_notes, load_promo_tab_rows
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+DEFAULT_OUTPUT = cfg.REPO_ROOT / "output" / "Daily Low & High Price Analysis.xlsx"
+CALENDAR_CHUNK_DAYS = 90
+
+
+def _fetch_full_calendar(client: PriceLabsClient, listing: cfg.Listing, days: int) -> dict:
+    today = dt.date.today()
+    end = today + dt.timedelta(days=days)
+    merged: dict = {}
+    chunk_start = today
+    while chunk_start < end:
+        chunk_end = min(chunk_start + dt.timedelta(days=CALENDAR_CHUNK_DAYS), end)
+        rows = client.get_listing_prices(
+            listing.listing_id,
+            listing.pms,
+            chunk_start.isoformat(),
+            chunk_end.isoformat(),
+        )
+        merged.update(parse_calendar(rows))
+        chunk_start = chunk_end
+    return merged
+
+
+def _promo_rows_from_raw(raw_rows: list[list]) -> list[PromoRow]:
+    parsed = []
+    for values in raw_rows:
+        values = list(values) + [None] * (9 - len(values))
+        parsed.append(
+            PromoRow(
+                entered_date=values[0].date() if isinstance(values[0], dt.datetime) else values[0],
+                date_applied_raw=values[1],
+                discount_pct=values[5],
+                price_entered_raw=values[4],
+            )
+        )
+    return parsed
+
+
+def _recompute_promo_override_lookup(raw_rows: list[list], overrides: dict) -> list[list]:
+    updated = []
+    for values in raw_rows:
+        values = list(values) + [None] * (9 - len(values))
+        date_applied = values[1]
+        single_date = date_applied.date() if isinstance(date_applied, dt.datetime) else (
+            date_applied if isinstance(date_applied, dt.date) else None
+        )
+        override = overrides.get(single_date) if single_date else None
+        values[7] = override.price_override_display if override else None
+        values[8] = override.reason if override else None
+        updated.append(values)
+    return updated
+
+
+def run(
+    output_path: Path,
+    days: int,
+    bookings_csv: str | None,
+    listings_config: Path | None,
+) -> None:
+    listings = cfg.load_listings(listings_config)
+    holidays = cfg.load_holidays()
+    api_key = cfg.get_api_key()
+    client = PriceLabsClient(api_key)
+
+    wb = new_workbook()
+    compset_entries = []
+
+    today = dt.date.today()
+    display_dates = [today + dt.timedelta(days=i) for i in range(days)]
+
+    for listing in listings:
+        logger.info("Processing %s (%s / %s)", listing.name, listing.pms, listing.listing_id)
+
+        preserved_notes = load_preserved_notes(output_path, listing.tab_name)
+        preserved_promo_rows = load_promo_tab_rows(output_path, listing.promo_tab_name)
+
+        try:
+            reservations = fetch_reservations_verified(
+                client,
+                pms=listing.pms,
+                listing_id=listing.listing_id,
+                fallback_csv_path=bookings_csv,
+            )
+        except ReservationDataTruncatedError as exc:
+            logger.error(str(exc))
+            raise SystemExit(1) from exc
+
+        nightly_adr = nightly_adr_series(reservations)
+        aggregates = compute_category_aggregates(nightly_adr, holidays)
+        ly_series, ly2_series = ly_ly2_series(nightly_adr, display_dates)
+
+        calendar = _fetch_full_calendar(client, listing, days)
+        raw_market = client.get_neighborhood_data(listing.listing_id, listing.pms)
+        market, compset = parse_market_data(raw_market)
+        raw_overrides = client.get_overrides(listing.listing_id, listing.pms)
+        overrides = parse_overrides(raw_overrides)
+
+        promo_rows = _promo_rows_from_raw(preserved_promo_rows)
+        promo_lookup = build_promo_lookup(promo_rows)
+
+        rows = build_date_rows(
+            display_dates,
+            calendar,
+            market,
+            ly_series,
+            ly2_series,
+            holidays,
+            overrides,
+            promo_lookup,
+            aggregates,
+        )
+
+        for row in rows:
+            if row.date in preserved_notes:
+                row.note_date, row.note = preserved_notes[row.date]
+
+        build_property_sheet(wb, listing.tab_name, rows)
+
+        updated_promo_rows = _recompute_promo_override_lookup(preserved_promo_rows, overrides)
+        build_promo_sheet(wb, listing.promo_tab_name, updated_promo_rows)
+
+        build_overrides_sheet(wb, listing.overrides_tab_name, overrides)
+
+        compset_entries.append((listing.name, compset))
+
+    build_compset_sheet(wb, compset_entries)
+    build_how_this_works_sheet(wb)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(output_path)
+    logger.info("Saved %s", output_path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--days", type=int, default=365, help="Forward window length, in days.")
+    parser.add_argument(
+        "--bookings-csv",
+        type=str,
+        default=None,
+        help="Manual reservations-history CSV to fall back to if the API "
+        "reservation pull looks truncated.",
+    )
+    parser.add_argument("--listings-config", type=Path, default=None)
+    args = parser.parse_args(argv)
+
+    try:
+        run(args.output, args.days, args.bookings_csv, args.listings_config)
+    except PriceLabsAPIError as exc:
+        logger.error(str(exc))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
