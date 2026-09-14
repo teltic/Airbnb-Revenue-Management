@@ -38,7 +38,14 @@ Writes `output/Daily Low & High Price Analysis.xlsx` by default. Useful flags:
   columns: Listing Name, Check-in Date, Check-out Date, Booked Date,
   Average Daily Rate, Rental Revenue, Total Revenue, Currency, Booking
   Source, Booking Status -- this is the format the PriceLabs dashboard's
-  CSV export uses.
+  CSV export uses. One CSV can cover your whole portfolio (a multi-listing
+  export) or just one property -- the script filters rows by the `name` in
+  `config/listings.yaml` matched against the CSV's Listing Name column
+  (whitespace/case-insensitive), so one property falling back never mixes
+  another property's bookings into its numbers. If a property's name
+  doesn't match anything in the CSV, the error message lists the exact
+  Listing Name values the CSV actually contains so you can fix the
+  mismatch.
 
 Rerunning is non-destructive: before regenerating, the script reads the
 existing output file (if present) and preserves the **Note Date / Note**

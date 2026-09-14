@@ -83,8 +83,27 @@ def _from_api_rows(rows: list[dict]) -> list[Reservation]:
     return out
 
 
-def load_reservations_csv(path: str) -> list[Reservation]:
+def _normalize_listing_name(name: str) -> str:
+    # Strip ALL whitespace, not just collapse repeats: real PMS-sourced
+    # names have been observed with inconsistent spacing around the same
+    # words (e.g. "Sauna  Cold Plunge  5 BR" vs. a config name of "Sauna
+    # Cold Plunge 5BR") -- word-boundary differences like "5BR" vs "5 BR"
+    # are formatting noise here, not a meaningful distinction.
+    return "".join(name.split()).lower()
+
+
+def load_reservations_csv(path: str, listing_name: str | None = None) -> list[Reservation]:
+    """Load reservations from a manually-exported CSV.
+
+    If `listing_name` is given, only rows for that property are returned --
+    a portfolio-wide export covers every listing in one file, and without
+    this filter one property's bookings would leak into another's LY/2LY
+    ADR and Max/Floor calculations. Matching is whitespace/case-normalized
+    since PMS-sourced listing names can have inconsistent spacing (e.g.
+    "Sauna  Cold Plunge  5 BR" vs. a config name of "Sauna Cold Plunge 5BR").
+    """
     out = []
+    all_listing_names: set[str] = set()
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         missing = set(CSV_COLUMNS) - set(reader.fieldnames or [])
@@ -95,9 +114,11 @@ def load_reservations_csv(path: str) -> list[Reservation]:
             )
         for row in reader:
             try:
+                row_listing_name = row["Listing Name"]
+                all_listing_names.add(row_listing_name)
                 out.append(
                     Reservation(
-                        listing_name=row["Listing Name"],
+                        listing_name=row_listing_name,
                         check_in=_parse_date(row["Check-in Date"]),
                         check_out=_parse_date(row["Check-out Date"]),
                         adr=float(row["Average Daily Rate"]),
@@ -106,13 +127,27 @@ def load_reservations_csv(path: str) -> list[Reservation]:
                 )
             except (KeyError, ValueError) as exc:
                 logger.warning("Skipping malformed CSV row %r: %s", row, exc)
-    return out
+
+    if listing_name is None:
+        return out
+
+    target = _normalize_listing_name(listing_name)
+    filtered = [r for r in out if _normalize_listing_name(r.listing_name) == target]
+    if not filtered:
+        raise ValueError(
+            f"No rows in {path} matched listing name '{listing_name}' "
+            f"(normalized: '{target}'). Listing names found in the CSV: "
+            f"{sorted(all_listing_names)}. Check config/listings.yaml's "
+            f"`name` field against the CSV's Listing Name column."
+        )
+    return filtered
 
 
 def fetch_reservations_verified(
     client: PriceLabsClient,
     pms: str,
     listing_id: str,
+    listing_name: str,
     years_back: int = 2,
     fallback_csv_path: str | None = None,
 ) -> list[Reservation]:
@@ -162,7 +197,7 @@ def fetch_reservations_verified(
             len(reservations),
             fallback_csv_path,
         )
-        return load_reservations_csv(fallback_csv_path)
+        return load_reservations_csv(fallback_csv_path, listing_name=listing_name)
 
     raise ReservationDataTruncatedError(
         f"Reservation history for listing {listing_id} looks truncated: "

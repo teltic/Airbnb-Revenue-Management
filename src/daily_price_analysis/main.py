@@ -124,6 +124,7 @@ def run(
                 client,
                 pms=listing.pms,
                 listing_id=listing.listing_id,
+                listing_name=listing.name,
                 fallback_csv_path=bookings_csv,
             )
         except ReservationDataTruncatedError as exc:
