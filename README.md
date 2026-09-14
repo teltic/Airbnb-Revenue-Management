@@ -103,6 +103,17 @@ good override data with blanks.
    differ silently between properties (see the Compset Overview tab) --
    both deliberate, both explained in the "How This Works" tab.
 
+7. **A comp-set split into multiple bedroom-count segments uses the
+   largest one for percentiles.** Some listings' comp-set data comes back
+   as several sub-groups (one per bedroom count) instead of one blended
+   group -- caught on the first live run, where a 1-listing sub-group was
+   picked arbitrarily and made every percentile column identical. The
+   script now picks the sub-group with the most listings for the actual
+   Market Percentile numbers, and the Compset Overview tab's Notes column
+   says when this happened and what the combined listing count across all
+   segments is (which may double-count a listing that appears in more than
+   one segment).
+
 ## Project layout
 
 ```
