@@ -50,20 +50,15 @@ good override data with blanks.
 
 ## Known limitations / assumptions worth knowing before you trust this
 
-1. **PriceLabs API endpoint paths are unverified from this build
-   environment.** The sandbox this was built in blocks all outbound
-   network access to pricelabs.co, so `pricelabs_client.py`'s endpoint
-   paths (base URL, exact routes, HTTP methods) come from PriceLabs' public
-   API documentation structure rather than a live test against the
-   directly-authenticated (API-key) endpoint. What *is* verified against
-   real account data (captured 2026-09-12, via this account's already-connected
-   PriceLabs MCP integration, which proxies the same backend over a
-   different auth path) are the JSON field names the parsing code expects
-   -- `price`, `ADR`, `booking_status`, `price_type`, `min_price`, etc. are
-   real. **On the first run somewhere with real internet access, watch for
-   404/405 errors** -- `PriceLabsAPIError` prints the failing URL and
-   response body, and a wrong path is a one-line fix in the `ENDPOINTS`
-   dict at the top of `pricelabs_client.py`.
+1. **PriceLabs API endpoints are now confirmed live.** The base URL, auth
+   header, and all four endpoints actually used in a run (`listing_prices`,
+   `neighborhood_data`, `overrides`, `reservation_data`) were verified
+   against a real account on 2026-09-14 -- the first real run caught one
+   wrong path (`overrides`, since fixed). `get_listings` is the one method
+   nothing in the normal flow calls, so it remains unverified; if it ever
+   404s, `PriceLabsAPIError` prints the failing URL and response body, and
+   a wrong path is a one-line fix in the `ENDPOINTS` dict at the top of
+   `pricelabs_client.py`.
 
 2. **No holiday/event field exists anywhere in the PriceLabs API.** Checked
    the pricing calendar, market/neighborhood-data, and overrides endpoints
