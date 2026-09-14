@@ -22,8 +22,12 @@ pulled from the API.
 ## Usage
 
 ```
-python -m daily_price_analysis.main
+python run.py
 ```
+
+(Equivalent to `python -m daily_price_analysis.main`, but works out of the
+box -- that form requires `src/` on your `PYTHONPATH`, which Python doesn't
+set up automatically.)
 
 Writes `output/Daily Low & High Price Analysis.xlsx` by default. Useful flags:
 
