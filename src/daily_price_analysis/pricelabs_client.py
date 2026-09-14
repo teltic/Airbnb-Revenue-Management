@@ -1,23 +1,18 @@
 """Thin wrapper around PriceLabs' Customer API.
 
-IMPORTANT -- endpoint paths below are a documented assumption, not a
-network-verified fact. This script was built in a sandbox whose egress
-policy blocks pricelabs.co entirely, so the exact paths/methods of the
-*directly authenticated* (API-key) Customer API at https://docs.pricelabs.co
-could not be hit from here. What *was* verified live (via this account's
-already-connected PriceLabs MCP integration, which proxies the same backend
-over OAuth at a "/mcp/api/..." prefix) are the response *shapes* baked into
-the parsing code in this module and in bookings.py / market.py -- field
-names like `price`, `ADR`, `booking_status`, `price_type`, `min_price`, etc.
-are real, taken from live account data on 2026-09-12.
+Base URL, auth (`X-API-Key` header), and every path in `ENDPOINTS` below
+have been confirmed against a real account with a live API key (2026-09-14):
+`listing_prices`, `neighborhood_data`, `overrides`, and `reservation_data`
+all returned real data end-to-end. `listings` (used only if you call
+`get_listings` directly -- the main workflow doesn't) is still unverified,
+since nothing in the normal run exercises it; if it 404s, it's likely
+`/v1/listings` needs the same `{resource}/{id}/...` nesting style overrides
+turned out to need (`/listings/{id}/overrides`, not `/listing_data/...`).
 
-The base URL, exact paths, and HTTP methods for the API-key-authenticated
-v1 API are filled in from PriceLabs' public documentation structure as
-commonly published; CONFIRM THEM against https://docs.pricelabs.co on the
-first real run somewhere that can reach the internet, and fix the
-`ENDPOINTS` dict below if any path is wrong -- every call in this file goes
-through `_request`, so a wrong path shows up immediately as a 404/405 with
-the response body printed, rather than failing silently.
+If any endpoint ever starts 404/405ing (a PriceLabs API change, a plan/
+permission difference, etc.), every call in this file goes through
+`_request`, so the failure surfaces immediately with the failing URL and
+response body rather than silently.
 """
 
 from __future__ import annotations
@@ -35,7 +30,7 @@ ENDPOINTS = {
     "listings": "/listings",
     "listing_prices": "/listing_prices",
     "neighborhood_data": "/neighborhood_data",
-    "overrides": "/listing_data/{listing_id}/overrides",
+    "overrides": "/listings/{listing_id}/overrides",
     "reservation_data": "/reservation_data",
 }
 
