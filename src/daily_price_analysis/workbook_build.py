@@ -202,7 +202,7 @@ def build_compset_sheet(wb: Workbook, entries: list[tuple[str, CompsetInfo]]) ->
         ws.cell(row=r, column=2, value=info.source_label.split(":")[0].strip() if info.source_label else "")
         ws.cell(row=r, column=3, value=info.category_name)
         ws.cell(row=r, column=4, value=info.listings_used)
-        ws.cell(row=r, column=5, value="")
+        ws.cell(row=r, column=5, value=info.notes)
     footer_row = len(entries) + 3
     ws.cell(
         row=footer_row,

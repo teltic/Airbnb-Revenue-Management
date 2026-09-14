@@ -25,6 +25,7 @@ class CompsetInfo:
     source_label: str
     category_name: str
     listings_used: int | None
+    notes: str = ""
 
 
 OCC_LABELS = [
@@ -45,11 +46,21 @@ PRICE_LABELS = [
 ]
 
 
-def _first_category(section: dict) -> tuple[str, dict] | tuple[None, None]:
+def _select_primary_category(section: dict) -> tuple[str, dict] | tuple[None, None]:
+    """Pick the category with the most listings.
+
+    A comp-set segmented by bedroom count (PriceLabs' "Nearby Listings"
+    style, as opposed to a single curated amenity-based comp) returns one
+    sub-category per bedroom bucket rather than one blended group. Taking
+    "whichever key comes first" can land on a bucket with as few as 1
+    listing, which makes every percentile column identical (25th = 50th =
+    75th = 90th, since there's only one data point) -- picking the bucket
+    with the most listings gives the most statistically meaningful spread.
+    """
     categories = section.get("Category", {})
     if not categories:
         return None, None
-    name = next(iter(categories))
+    name = max(categories, key=lambda k: categories[k].get("Listings Used", 0) or 0)
     return name, categories[name]
 
 
@@ -57,8 +68,8 @@ def parse_market_data(raw: dict) -> tuple[dict[dt.date, MarketDay], CompsetInfo]
     occ_section = raw.get("Future Occ/New/Canc", {})
     price_section = raw.get("Future Percentile Prices", {})
 
-    occ_cat_name, occ_cat = _first_category(occ_section)
-    price_cat_name, price_cat = _first_category(price_section)
+    occ_cat_name, occ_cat = _select_primary_category(occ_section)
+    price_cat_name, price_cat = _select_primary_category(price_section)
 
     occ_by_date: dict[str, float] = {}
     if occ_cat:
@@ -75,7 +86,7 @@ def parse_market_data(raw: dict) -> tuple[dict[dt.date, MarketDay], CompsetInfo]
         if len(y_values) >= 4:
             p25, p50, p75, _median, p90 = y_values[0], y_values[1], y_values[2], y_values[3], y_values[4]
             for i, date_str in enumerate(x_values):
-                price_by_date[date_str] = (p25[i], p50[i], p75[i], p90[i])
+                price_by_date[date_str] = tuple(round(v, 2) if v is not None else None for v in (p25[i], p50[i], p75[i], p90[i]))
 
     all_dates = set(occ_by_date) | set(price_by_date)
     result: dict[dt.date, MarketDay] = {}
@@ -89,16 +100,36 @@ def parse_market_data(raw: dict) -> tuple[dict[dt.date, MarketDay], CompsetInfo]
             occupancy_stly=occ_by_date.get(date_str),
         )
 
-    listings_used = None
-    if price_cat is not None:
-        listings_used = price_cat.get("Listings Used")
-    elif occ_cat is not None:
-        listings_used = occ_cat.get("Listings Used")
+    all_categories = list(price_section.get("Category", {}).keys()) or list(
+        occ_section.get("Category", {}).keys()
+    )
+    primary_name = price_cat_name or occ_cat_name or ""
+    notes = ""
+    if len(all_categories) > 1:
+        total_across_segments = sum(
+            (price_section.get("Category", {}).get(name) or occ_section.get("Category", {}).get(name) or {}).get(
+                "Listings Used", 0
+            )
+            or 0
+            for name in all_categories
+        )
+        category_name = f"{primary_name} (of {len(all_categories)} segments: {', '.join(sorted(all_categories))})"
+        notes = (
+            f"Comp-set is split into {len(all_categories)} bedroom-count segments; "
+            f"percentiles above use the largest one ('{primary_name}'). Combined "
+            f"segments cover {total_across_segments} listings total (may double-count "
+            f"any listing appearing in more than one segment)."
+        )
+        listings_used = total_across_segments
+    else:
+        category_name = primary_name
+        listings_used = (price_cat or occ_cat or {}).get("Listings Used")
 
     compset = CompsetInfo(
         source_label=raw.get("Neighborhood Data Source", ""),
-        category_name=price_cat_name or occ_cat_name or "",
+        category_name=category_name,
         listings_used=listings_used,
+        notes=notes,
     )
     return result, compset
 

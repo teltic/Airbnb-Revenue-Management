@@ -109,6 +109,7 @@ def run(
 
     wb = new_workbook()
     compset_entries = []
+    per_listing_results = []
 
     today = dt.date.today()
     display_dates = [today + dt.timedelta(days=i) for i in range(days)]
@@ -160,14 +161,20 @@ def run(
             if row.date in preserved_notes:
                 row.note_date, row.note = preserved_notes[row.date]
 
-        build_property_sheet(wb, listing.tab_name, rows)
-
         updated_promo_rows = _recompute_promo_override_lookup(preserved_promo_rows, overrides)
-        build_promo_sheet(wb, listing.promo_tab_name, updated_promo_rows)
 
-        build_overrides_sheet(wb, listing.overrides_tab_name, overrides)
-
+        per_listing_results.append((listing, rows, updated_promo_rows, overrides))
         compset_entries.append((listing.name, compset))
+
+    # Tabs are built in three separate passes (rather than interleaved
+    # per-listing) so the workbook's sheet order matches the spec: every
+    # property tab, then every Promo tab, then every Overrides tab.
+    for listing, rows, _promo_rows, _overrides in per_listing_results:
+        build_property_sheet(wb, listing.tab_name, rows)
+    for listing, _rows, promo_rows, _overrides in per_listing_results:
+        build_promo_sheet(wb, listing.promo_tab_name, promo_rows)
+    for listing, _rows, _promo_rows, overrides in per_listing_results:
+        build_overrides_sheet(wb, listing.overrides_tab_name, overrides)
 
     build_compset_sheet(wb, compset_entries)
     build_how_this_works_sheet(wb)
