@@ -27,7 +27,11 @@ pulled from the API.
   a dated snapshot (`Daily Low & High Price Analysis - YYYY-MM-DD.xlsx`)
   into the folder set as `OUTPUT_DIR` at the top of that file, carrying
   Notes and the Promo Tracker tabs forward from the most recent earlier
-  file in that same folder automatically.
+  file in that same folder automatically (or from today's own file, if
+  you've already generated it once today and typed into it -- a same-day
+  rerun never discards those edits). If today's file is currently open in
+  Excel, the run will stop with a plain "close it and try again" message
+  instead of overwriting a locked file.
 - **`setup_daily_task.bat`** -- run once to register a Windows Scheduled
   Task that runs `run_daily.bat` automatically every day (default 6:00 AM
   -- edit `RUN_TIME` at the top of the file, then rerun it, to change
@@ -48,8 +52,10 @@ overwriting that one file). Useful flags:
 
 - `--output-dir DIR` -- write a dated snapshot into DIR instead of
   overwriting a single file, carrying Notes/Promo data forward from the
-  most recent earlier-dated file already in DIR (this is what
-  `run_daily.bat` uses). Overrides `--output`.
+  most recent dated file already in DIR that's dated today or earlier
+  (preferring today's own file if one already exists, so a same-day rerun
+  doesn't discard edits) -- this is what `run_daily.bat` uses. Overrides
+  `--output`.
 - `--output PATH` -- write to (and read prior Notes/Promo from) one fixed
   file instead.
 - `--days N` -- forward window length (default 365).

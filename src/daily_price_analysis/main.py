@@ -195,7 +195,14 @@ def run(
     build_how_this_works_sheet(wb)
 
     write_path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(write_path)
+    try:
+        wb.save(write_path)
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Could not write {write_path} -- it's most likely open in Excel "
+            f"(or another program) right now, which locks the file. Close it "
+            f"and run this again."
+        ) from exc
     logger.info("Saved %s", write_path)
 
 
