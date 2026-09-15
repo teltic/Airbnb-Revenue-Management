@@ -30,14 +30,18 @@ import sys
 from pathlib import Path
 
 from . import config as cfg
-from .bookings import fetch_reservations_verified, nightly_adr_series
-from .compute import build_date_rows, compute_category_aggregates, ly_ly2_series
+from .bookings import (
+    fetch_reservations_verified,
+    median_booking_window_days,
+    nightly_adr_series,
+)
+from .compute import build_date_rows, ly_series_for_dates
 from .calendar import parse_calendar
 from .dated_output import resolve_output_paths
 from .market import parse_market_data
 from .overrides import parse_overrides
 from .pricelabs_client import PriceLabsAPIError, PriceLabsClient
-from .promo import PromoRow, build_promo_lookup
+from .promo import PromoRow, build_promo_lookup, build_promo_output_rows
 from .workbook_build import (
     build_compset_sheet,
     build_how_this_works_sheet,
@@ -73,34 +77,19 @@ def _fetch_full_calendar(client: PriceLabsClient, listing: cfg.Listing, days: in
     return merged
 
 
-def _promo_rows_from_raw(raw_rows: list[list]) -> list[PromoRow]:
+def _promo_rows_from_raw(raw_rows: list[dict]) -> list[PromoRow]:
     parsed = []
-    for values in raw_rows:
-        values = list(values) + [None] * (9 - len(values))
+    for row in raw_rows:
+        entered_date = row.get("Entered Date")
         parsed.append(
             PromoRow(
-                entered_date=values[0].date() if isinstance(values[0], dt.datetime) else values[0],
-                date_applied_raw=values[1],
-                discount_pct=values[5],
-                price_entered_raw=values[4],
+                entered_date=entered_date.date() if isinstance(entered_date, dt.datetime) else entered_date,
+                date_applied_raw=row.get("Date Applied"),
+                discount_pct=row.get("Discount %"),
+                price_entered_raw=row.get("Price Entered"),
             )
         )
     return parsed
-
-
-def _recompute_promo_override_lookup(raw_rows: list[list], overrides: dict) -> list[list]:
-    updated = []
-    for values in raw_rows:
-        values = list(values) + [None] * (9 - len(values))
-        date_applied = values[1]
-        single_date = date_applied.date() if isinstance(date_applied, dt.datetime) else (
-            date_applied if isinstance(date_applied, dt.date) else None
-        )
-        override = overrides.get(single_date) if single_date else None
-        values[7] = override.price_override_display if override else None
-        values[8] = override.reason if override else None
-        updated.append(values)
-    return updated
 
 
 def run(
@@ -148,8 +137,16 @@ def run(
         )
 
         nightly_adr = nightly_adr_series(reservations)
-        aggregates = compute_category_aggregates(nightly_adr, holidays)
-        ly_series, ly2_series = ly_ly2_series(nightly_adr, display_dates)
+        ly_series = ly_series_for_dates(nightly_adr, display_dates)
+        booking_window_days = median_booking_window_days(reservations)
+        logger.info(
+            "%s: booking window = %s days (%s)",
+            listing.name,
+            round(booking_window_days) if booking_window_days is not None else "unavailable",
+            "this property's own reservation history"
+            if booking_window_days is not None
+            else "falling back to default",
+        )
 
         calendar = _fetch_full_calendar(client, listing, days)
         raw_market = client.get_neighborhood_data(listing.listing_id, listing.pms)
@@ -162,21 +159,21 @@ def run(
 
         rows = build_date_rows(
             display_dates,
+            today,
             calendar,
             market,
             ly_series,
-            ly2_series,
+            booking_window_days,
             holidays,
             overrides,
             promo_lookup,
-            aggregates,
         )
 
         for row in rows:
             if row.date in preserved_notes:
                 row.note_date, row.note = preserved_notes[row.date]
 
-        updated_promo_rows = _recompute_promo_override_lookup(preserved_promo_rows, overrides)
+        updated_promo_rows = build_promo_output_rows(preserved_promo_rows, overrides)
 
         per_listing_results.append((listing, rows, updated_promo_rows, overrides))
         compset_entries.append((listing.name, compset))
