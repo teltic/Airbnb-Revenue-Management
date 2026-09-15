@@ -13,7 +13,7 @@ import datetime as dt
 import statistics
 from dataclasses import dataclass
 
-from daily_price_analysis.market import MarketDay
+from .market import MarketDay
 
 from .reservations import Reservation, nightly_adr_series
 

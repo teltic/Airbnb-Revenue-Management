@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import openpyxl
 
 from booking_quality_log import main as bql_main
-from daily_price_analysis.config import Listing
+from booking_quality_log.config import Listing
 
 FAKE_MARKET = {
     "Neighborhood Data Source": "Market Dashboard: test comp",

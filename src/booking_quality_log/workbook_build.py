@@ -27,8 +27,9 @@ SHEET_NAME = "Booking Quality Log"
 # fill uses PatternFill("solid", fgColor=...), but a fill used inside a
 # FormulaRule needs PatternFill(bgColor=...) with NO patternType instead --
 # Excel reads the swatch from bgColor there, not fgColor. (Confirmed the
-# hard way on the sibling daily_price_analysis tool -- see its
-# workbook_build.py.) FILL_HEADER is a plain cell fill, so it keeps
+# hard way on this tool's sibling pricing tool -- see
+# teltic/Airbnb-Promotion-Price-Range-Tool's workbook_build.py, since that
+# tool moved to its own repo.) FILL_HEADER is a plain cell fill, so it keeps
 # "solid" + fgColor; everything else here is only ever used inside a
 # FormulaRule, so it uses the bgColor-only dxf form.
 FILL_HEADER = PatternFill("solid", fgColor="FFD9E1F2")

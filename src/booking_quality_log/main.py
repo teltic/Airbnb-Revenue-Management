@@ -25,9 +25,9 @@ import logging
 import sys
 from pathlib import Path
 
-from daily_price_analysis import config as cfg
-from daily_price_analysis.market import parse_market_data
-from daily_price_analysis.pricelabs_client import PriceLabsAPIError, PriceLabsClient
+from . import config as cfg
+from .market import parse_market_data
+from .pricelabs_client import PriceLabsAPIError, PriceLabsClient
 
 from .compute import START_DATE, build_booking_rows
 from .dated_output import dated_filename, find_most_recent_prior_file

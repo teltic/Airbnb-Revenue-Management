@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from daily_price_analysis.pricelabs_client import PriceLabsClient
+from .pricelabs_client import PriceLabsClient
 
 CANCELLED_STATUSES = {"cancelled", "canceled"}
 

@@ -7,7 +7,7 @@ from booking_quality_log.compute import (
     fill_difficulty_note,
 )
 from booking_quality_log.reservations import Reservation
-from daily_price_analysis.market import MarketDay
+from booking_quality_log.market import MarketDay
 
 
 def _res(res_id, check_in, check_out, adr, revenue, booked_date, confirmation_code, status="booked"):
