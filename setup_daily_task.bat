@@ -7,7 +7,7 @@ REM creating a duplicate, so re-running this after editing the time below
 REM (or after moving this folder) updates the schedule in place.
 
 REM --- Edit this to change what time it runs each day (24-hour HH:MM) ---
-set RUN_TIME=06:00
+set "RUN_TIME=06:00"
 
 schtasks /create /tn "Airbnb Daily Price Analysis" /tr "\"%~dp0run_daily.bat\"" /sc daily /st %RUN_TIME% /f
 
