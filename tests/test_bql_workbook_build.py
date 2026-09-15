@@ -6,6 +6,7 @@ from booking_quality_log.workbook_build import (
     HEADER_ROW,
     HEADERS,
     HIDDEN_COLUMNS,
+    MANUAL_COLS_COUNT,
     SHEET_NAME,
     build_booking_quality_sheet,
     build_read_me_sheet,
@@ -33,6 +34,7 @@ def _row(res_id, checkin=dt.date(2026, 9, 5)):
         market_p25=250.0,
         market_p90=420.0,
         stly_adr="no data",
+        ly_occ="20%, 65%",
         demand_tier="High",
         gap_before_days="first known booking in window",
         gap_before_signal=None,
@@ -53,33 +55,36 @@ def test_sheet_structure_matches_prototype_layout():
     assert len(HEADERS) == 33  # A..AG
     assert "Status" in HEADERS
     assert "Reservation ID" in HEADERS
+    assert MANUAL_COLS_COUNT == 5
 
-    assert ws.column_dimensions["AA"].hidden is True
-    assert HIDDEN_COLUMNS == {"AA"}
+    assert ws.column_dimensions["AB"].hidden is True
+    assert HIDDEN_COLUMNS == {"AB"}
 
     data_row = ws[FIRST_DATA_ROW]
     assert data_row[0].value == "Test Property"
-    assert data_row[25].value == "Confirmed"  # Z: Status
-    assert data_row[26].value == "AAA111"  # AA: Reservation ID
+    assert data_row[26].value == "Confirmed"  # AA: Status
+    assert data_row[27].value == "AAA111"  # AB: Reservation ID
 
 
 def test_manual_notes_carried_forward_by_reservation_id():
     wb = new_workbook()
-    prior_notes = {"AAA111": ("checked", "70%", "5%", "yes", "ok", "looks good")}
+    prior_notes = {"AAA111": ("checked", "5%", "yes", "ok", "looks good")}
     build_booking_quality_sheet(wb, [_row("AAA111")], dt.date(2026, 9, 1), manual_notes=prior_notes)
     ws = wb[SHEET_NAME]
     row = ws[FIRST_DATA_ROW]
-    manual_values = [c.value for c in row[27:33]]
+    manual_values = [c.value for c in row[28:33]]
     assert manual_values == list(prior_notes["AAA111"])
 
 
 def test_manual_notes_blank_for_a_row_with_no_prior_match():
     wb = new_workbook()
-    build_booking_quality_sheet(wb, [_row("NEWID")], dt.date(2026, 9, 1), manual_notes={"SOMEOTHERID": ("x",) * 6})
+    build_booking_quality_sheet(
+        wb, [_row("NEWID")], dt.date(2026, 9, 1), manual_notes={"SOMEOTHERID": ("x",) * 5}
+    )
     ws = wb[SHEET_NAME]
     row = ws[FIRST_DATA_ROW]
-    manual_values = [c.value for c in row[27:33]]
-    assert manual_values == [None] * 6
+    manual_values = [c.value for c in row[28:33]]
+    assert manual_values == [None] * 5
 
 
 def test_cancelled_row_is_grayed_out_and_shows_status():
@@ -91,7 +96,16 @@ def test_cancelled_row_is_grayed_out_and_shows_status():
     build_booking_quality_sheet(wb, [row], dt.date(2026, 9, 1))
     ws = wb[SHEET_NAME]
     data_row = ws[FIRST_DATA_ROW]
-    assert data_row[25].value == "Cancelled"
+    assert data_row[26].value == "Cancelled"
+
+
+def test_ly_occ_column_present_and_computed():
+    wb = new_workbook()
+    build_booking_quality_sheet(wb, [_row("AAA111")], dt.date(2026, 9, 1))
+    ws = wb[SHEET_NAME]
+    assert "LY occ.\n(per night)" in HEADERS
+    data_row = ws[FIRST_DATA_ROW]
+    assert data_row[20].value == "20%, 65%"  # U: LY occ. (per night)
 
 
 def test_read_me_sheet_created():

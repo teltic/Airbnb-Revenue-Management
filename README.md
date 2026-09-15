@@ -191,8 +191,11 @@ time passes; ask if you'd rather it rolled forward instead), sorted by
 Each row carries: nights/stay pattern/1-night flag, booking-window vs. that
 property's own median lead time, your ADR vs. the comp set's 75th-percentile
 target (both properties are Premium tier), market P25/P90 for context,
-same-date-last-year ADR where available, a demand tier from comp-set
-occupancy, a Gap Before/After signal ("Upsell candidate" on a 1-night gap,
+same-date-last-year ADR where available, comp-set market occupancy from the
+same calendar dates last year shown one value per night of the stay (e.g.
+"20%, 65%" for a 2-night stay, not averaged, so a weak night doesn't get
+smoothed away by a strong one), a demand tier from comp-set occupancy, a
+Gap Before/After signal ("Upsell candidate" on a 1-night gap,
 "LOS-discount candidate" on a 2-night gap, each noting how often the comp
 set's occupancy suggests that gap fills on its own), and a **Status**
 column (Confirmed / Cancelled) -- a booking that later gets cancelled stays
@@ -223,9 +226,10 @@ since the last file was written triggers a new file -- a cancellation or a
 guest's dates changing on an existing booking does not, by itself, trigger
 one (ask if you'd rather those also triggered a refresh).
 
-**Manual note columns never get erased.** Comp Check (Airbnb), LY occ.,
-Pacing Push %, LOS Discount, Final PL Check, and Notes/Verdict are
-hand-typed, never computed. A hidden **Reservation ID** column (PriceLabs'
+**Manual note columns never get erased.** Comp Check (Airbnb), Pacing
+Push %, LOS Discount, Final PL Check, and Notes/Verdict are hand-typed,
+never computed (LY occ. used to be manual too, but is now automated -- see
+above). A hidden **Reservation ID** column (PriceLabs'
 own channel confirmation code, e.g. an Airbnb code like `HMT5EBPQ54`) keys
 each row so that whenever a new file is written, any note you typed on a
 booking that's still in view -- including one that's since been cancelled

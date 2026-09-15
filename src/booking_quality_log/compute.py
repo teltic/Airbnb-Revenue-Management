@@ -45,6 +45,7 @@ class BookingRow:
     market_p25: float | None
     market_p90: float | None
     stly_adr: float | str
+    ly_occ: str
     demand_tier: str
     gap_before_days: int | str | None
     gap_before_signal: str | None
@@ -138,6 +139,24 @@ def _stly_adr(stay_dates: list[dt.date], nightly_adr: dict[dt.date, float]) -> f
     return round(sum(matched) / len(matched), 2)
 
 
+def _ly_occ_per_night(stay_dates: list[dt.date], market: dict[dt.date, MarketDay]) -> str:
+    """Comp-set market occupancy for the same calendar dates last year, one
+    value per night of the stay (not averaged) -- deliberately kept
+    per-night rather than a single average so a night that rarely fills
+    doesn't get smoothed away by nights that reliably do.
+    """
+    parts = []
+    any_data = False
+    for d in stay_dates:
+        day = market.get(d)
+        if day is not None and day.occupancy_stly is not None:
+            parts.append(f"{round(day.occupancy_stly)}%")
+            any_data = True
+        else:
+            parts.append(NO_DATA)
+    return ", ".join(parts) if any_data else NO_DATA
+
+
 CANCELLED_GAP_NOTE = "n/a (cancelled)"
 
 
@@ -190,6 +209,7 @@ def _build_row(
         market_p25=round(market_p25, 2) if market_p25 is not None else None,
         market_p90=round(market_p90, 2) if market_p90 is not None else None,
         stly_adr=_stly_adr(stay_dates, nightly_adr),
+        ly_occ=_ly_occ_per_night(stay_dates, market),
         demand_tier=demand_tier_bucket(avg_occupancy),
         gap_before_days=gap_before_days,
         gap_before_signal=gap_before_signal,

@@ -12,6 +12,7 @@ import datetime as dt
 from openpyxl import Workbook
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .compute import BookingRow
@@ -56,15 +57,34 @@ HEADERS = [
     "Stay Pattern", "1-Night\nStay", "Booked", "Booking\nWindow (d)",
     "BW vs\nMedian", "My ADR", "My Revenue", "Source", "Target ADR\n(P75)",
     "vs Target\n($)", "vs Target\n(%)", "Market\nP25", "Market\nP90",
-    "STLY ADR\n(same dates)", "Demand Tier\n(stay dates)", "Gap Before\n(d)",
-    "Gap Before Signal", "Gap After\n(d)", "Gap After Signal", "Status",
-    "Reservation ID", "Comp Check (Airbnb)", "LY occ.",
+    "STLY ADR\n(same dates)", "LY occ.\n(per night)", "Demand Tier\n(stay dates)",
+    "Gap Before\n(d)", "Gap Before Signal", "Gap After\n(d)", "Gap After Signal",
+    "Status", "Reservation ID", "Comp Check (Airbnb)",
     "Pacing Push %", "LOS Discount", "Final PL Check", "Notes / Verdict",
 ]
-HIDDEN_COLUMNS = {"AA"}  # Reservation ID
+
+# Column numbers (1-indexed) for every column referenced by name below --
+# defined once here, letters derived with get_column_letter(), so a future
+# column insertion/removal only ever means editing HEADERS + this block,
+# never hunting down hardcoded letter strings scattered through formulas.
+COL_STAY_PATTERN = 7
+COL_ONE_NIGHT_STAY = 8
+COL_TARGET_ADR = 15
+COL_VS_TARGET_DOLLAR = 16
+COL_VS_TARGET_PCT = 17
+COL_GAP_BEFORE_SIGNAL = 24
+COL_GAP_AFTER_SIGNAL = 26
+STATUS_COL = 27
+RESERVATION_ID_COL = 28
+MANUAL_COLS_START = 29
+MANUAL_COLS_COUNT = 5
+
+assert len(HEADERS) == MANUAL_COLS_START - 1 + MANUAL_COLS_COUNT
+
+HIDDEN_COLUMNS = {get_column_letter(RESERVATION_ID_COL)}
 
 MANUAL_COLUMNS = [
-    "Comp Check (Airbnb)", "LY occ.", "Pacing Push %",
+    "Comp Check (Airbnb)", "Pacing Push %",
     "LOS Discount", "Final PL Check", "Notes / Verdict",
 ]
 
@@ -72,17 +92,15 @@ DATE_COLS = {2, 4}  # Check-in, Check-out
 MONEY_COLS = {12, 13, 15, 16, 18, 19}  # My ADR/Revenue, Target ADR, vs Target $, Market P25/P90
 HEADER_ROW = 4
 FIRST_DATA_ROW = 5
-STATUS_COL = 26  # Z
-RESERVATION_ID_COL = 27  # AA
-MANUAL_COLS_START = 28  # AB
-MANUAL_COLS_COUNT = 6
 
-COLUMN_WIDTHS = {
-    "A": 22, "B": 10, "C": 6, "D": 10, "E": 6, "G": 13, "H": 7, "I": 10,
-    "J": 8, "K": 9, "L": 8, "M": 9, "Q": 8, "T": 10, "V": 8, "W": 26,
-    "X": 8, "Y": 26, "Z": 12, "AA": 14, "AB": 24, "AC": 16, "AD": 16,
-    "AE": 20, "AF": 18, "AG": 26,
+COLUMN_WIDTHS_BY_NUMBER = {
+    1: 22, 2: 10, 3: 6, 4: 10, 5: 6, 7: 13, 8: 7, 9: 10, 10: 8, 11: 9,
+    12: 8, 13: 9, 17: 8, 20: 10, 21: 16, 23: 8, 24: 26, 25: 8, 26: 26,
+    STATUS_COL: 12, RESERVATION_ID_COL: 14, MANUAL_COLS_START: 24,
+    MANUAL_COLS_START + 1: 16, MANUAL_COLS_START + 2: 16,
+    MANUAL_COLS_START + 3: 20, MANUAL_COLS_START + 4: 26,
 }
+COLUMN_WIDTHS = {get_column_letter(n): w for n, w in COLUMN_WIDTHS_BY_NUMBER.items()}
 
 
 def _write_date(ws: Worksheet, row: int, col: int, value: dt.date | None) -> None:
@@ -151,16 +169,17 @@ def build_booking_quality_sheet(
         ws.cell(row=r, column=18, value=row.market_p25)
         ws.cell(row=r, column=19, value=row.market_p90)
         ws.cell(row=r, column=20, value=row.stly_adr)
-        ws.cell(row=r, column=21, value=row.demand_tier)
-        ws.cell(row=r, column=22, value=row.gap_before_days)
-        ws.cell(row=r, column=23, value=row.gap_before_signal)
-        ws.cell(row=r, column=24, value=row.gap_after_days)
-        ws.cell(row=r, column=25, value=row.gap_after_signal)
+        ws.cell(row=r, column=21, value=row.ly_occ)
+        ws.cell(row=r, column=22, value=row.demand_tier)
+        ws.cell(row=r, column=23, value=row.gap_before_days)
+        ws.cell(row=r, column=COL_GAP_BEFORE_SIGNAL, value=row.gap_before_signal)
+        ws.cell(row=r, column=25, value=row.gap_after_days)
+        ws.cell(row=r, column=COL_GAP_AFTER_SIGNAL, value=row.gap_after_signal)
         ws.cell(row=r, column=STATUS_COL, value=row.status)
         ws.cell(row=r, column=RESERVATION_ID_COL, value=row.reservation_id)
 
         saved = manual_notes.get(row.reservation_id)
-        for offset in range(6):
+        for offset in range(MANUAL_COLS_COUNT):
             value = saved[offset] if saved else None
             ws.cell(row=r, column=MANUAL_COLS_START + offset, value=value)
 
@@ -181,8 +200,16 @@ def build_booking_quality_sheet(
     if last_row >= FIRST_DATA_ROW:
         r0 = FIRST_DATA_ROW
 
-        def col_range(letter: str) -> str:
+        def col_letter(col_num: int) -> str:
+            return get_column_letter(col_num)
+
+        def col_range(col_num: int) -> str:
+            letter = col_letter(col_num)
             return f"{letter}{r0}:{letter}{last_row}"
+
+        target_adr_letter = col_letter(COL_TARGET_ADR)
+        vs_target_dollar_letter = col_letter(COL_VS_TARGET_DOLLAR)
+        vs_target_pct_letter = col_letter(COL_VS_TARGET_PCT)
 
         # (lower-bound, upper-bound) on the vs-Target ratio for each of the
         # 8 tiers, outermost first; None means "no bound on that side".
@@ -191,36 +218,44 @@ def build_booking_quality_sheet(
             (-0.1, 0.0), (-0.25, -0.1), (-0.5, -0.25), (None, -0.5),
         ]
         for (lo, hi), fill in zip(TIER_BOUNDS, FILL_TARGET_TIERS):
-            for col_letter, ratio_expr in (("P", f"(P{r0}/O{r0})"), ("Q", f"Q{r0}")):
-                is_number = f"ISNUMBER({'P' if col_letter == 'P' else 'Q'}{r0})"
-                conds = [is_number]
+            for col_num, ratio_expr in (
+                (COL_VS_TARGET_DOLLAR, f"({vs_target_dollar_letter}{r0}/{target_adr_letter}{r0})"),
+                (COL_VS_TARGET_PCT, f"{vs_target_pct_letter}{r0}"),
+            ):
+                letter = col_letter(col_num)
+                conds = [f"ISNUMBER({letter}{r0})"]
                 if lo is not None:
                     conds.append(f"{ratio_expr}>={lo}")
                 if hi is not None:
                     conds.append(f"{ratio_expr}<{hi}")
                 formula = f"AND({','.join(conds)})"
                 ws.conditional_formatting.add(
-                    col_range(col_letter), FormulaRule(formula=[formula], fill=fill)
+                    col_range(col_num), FormulaRule(formula=[formula], fill=fill)
                 )
 
+        one_night_letter = col_letter(COL_ONE_NIGHT_STAY)
+        stay_pattern_letter = col_letter(COL_STAY_PATTERN)
         ws.conditional_formatting.add(
-            col_range("H"), FormulaRule(formula=[f'H{FIRST_DATA_ROW}="Yes"'], fill=FILL_FLAG_NOTE)
+            col_range(COL_ONE_NIGHT_STAY),
+            FormulaRule(formula=[f'{one_night_letter}{r0}="Yes"'], fill=FILL_FLAG_NOTE),
         )
         ws.conditional_formatting.add(
-            col_range("G"), FormulaRule(formula=[f'G{FIRST_DATA_ROW}="Midweek"'], fill=FILL_FLAG_NOTE)
+            col_range(COL_STAY_PATTERN),
+            FormulaRule(formula=[f'{stay_pattern_letter}{r0}="Midweek"'], fill=FILL_FLAG_NOTE),
         )
-        for col_letter in ("W", "Y"):
+        for col_num in (COL_GAP_BEFORE_SIGNAL, COL_GAP_AFTER_SIGNAL):
+            letter = col_letter(col_num)
             ws.conditional_formatting.add(
-                col_range(col_letter),
+                col_range(col_num),
                 FormulaRule(
-                    formula=[f'ISNUMBER(SEARCH("Upsell",{col_letter}{FIRST_DATA_ROW}))'],
+                    formula=[f'ISNUMBER(SEARCH("Upsell",{letter}{r0}))'],
                     fill=FILL_UPSELL,
                 ),
             )
             ws.conditional_formatting.add(
-                col_range(col_letter),
+                col_range(col_num),
                 FormulaRule(
-                    formula=[f'ISNUMBER(SEARCH("LOS-discount",{col_letter}{FIRST_DATA_ROW}))'],
+                    formula=[f'ISNUMBER(SEARCH("LOS-discount",{letter}{r0}))'],
                     fill=FILL_LOS_DISCOUNT,
                 ),
             )
@@ -228,13 +263,15 @@ def build_booking_quality_sheet(
         # Gray out the whole visible row when Status = Cancelled, added last
         # (lowest priority) so it never hides a more specific signal color
         # (e.g. a cancelled 1-Night booking still shows its tan highlight).
+        status_letter = col_letter(STATUS_COL)
+        last_visible_letter = col_letter(COL_GAP_AFTER_SIGNAL)
         ws.conditional_formatting.add(
-            f"A{r0}:Y{last_row}",
-            FormulaRule(formula=[f'$Z{r0}="Cancelled"'], fill=FILL_CANCELLED),
+            f"A{r0}:{last_visible_letter}{last_row}",
+            FormulaRule(formula=[f'${status_letter}{r0}="Cancelled"'], fill=FILL_CANCELLED),
         )
         ws.conditional_formatting.add(
-            col_range("Z"),
-            FormulaRule(formula=[f'Z{r0}="Cancelled"'], fill=FILL_CANCELLED),
+            col_range(STATUS_COL),
+            FormulaRule(formula=[f'{status_letter}{r0}="Cancelled"'], fill=FILL_CANCELLED),
         )
 
 
@@ -259,6 +296,16 @@ READ_ME_LINES = [
         "then. Coverage is thin since it depends on you having had a booking on that "
         "exact date last year — treat it as a bonus data point, not a column you'll "
         "always have.",
+        False,
+    ),
+    ("", False),
+    ("LY occ. (per night)", True),
+    (
+        "Comp-set market occupancy on the same calendar dates last year, shown one value "
+        "per night of the stay rather than averaged -- a 2-night stay might show '20%, "
+        "65%' rather than a single blended 42%, so a night that historically struggles to "
+        "fill doesn't get smoothed away by a strong neighboring night. 'no data' means "
+        "PriceLabs didn't have comp-set data that far back for that specific date.",
         False,
     ),
     ("", False),
@@ -313,11 +360,11 @@ READ_ME_LINES = [
     ("", False),
     ("Manual note columns", True),
     (
-        "Comp Check (Airbnb), LY occ., Pacing Push %, LOS Discount, Final PL "
-        "Check, and Notes/Verdict are blank on purpose — type your own findings in as "
-        "you review, the same way you already do it by hand. They're matched to each "
-        "row by a hidden Reservation ID column, so a refresh won't wipe out what you've "
-        "typed — it carries notes forward for any booking still in view.",
+        "Comp Check (Airbnb), Pacing Push %, LOS Discount, Final PL Check, and "
+        "Notes/Verdict are blank on purpose — type your own findings in as you review, "
+        "the same way you already do it by hand. They're matched to each row by a hidden "
+        "Reservation ID column, so a refresh won't wipe out what you've typed — it "
+        "carries notes forward for any booking still in view.",
         False,
     ),
     ("", False),

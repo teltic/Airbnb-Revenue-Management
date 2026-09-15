@@ -86,7 +86,7 @@ def test_new_booking_writes_and_carries_manual_notes_forward(tmp_path):
     [day1_file] = tmp_path.glob("*.xlsx")
     wb = openpyxl.load_workbook(day1_file)
     ws = wb["Booking Quality Log"]
-    ws.cell(row=5, column=28, value="checked, price is fair")
+    ws.cell(row=5, column=29, value="checked, price is fair")
     wb.save(day1_file)
 
     res_day3 = res_day1 + [_reservation_row("r2", "2026-09-20", "2026-09-22", "BBBB222222")]
@@ -99,11 +99,11 @@ def test_new_booking_writes_and_carries_manual_notes_forward(tmp_path):
     wb2 = openpyxl.load_workbook(files[-1])
     ws2 = wb2["Booking Quality Log"]
     rows = list(ws2.iter_rows(min_row=5, values_only=True))
-    ids = {r[26] for r in rows}  # AA: Reservation ID
+    ids = {r[27] for r in rows}  # AB: Reservation ID
     assert ids == {"AAAA111111", "BBBB222222"}
 
-    carried = next(r for r in rows if r[26] == "AAAA111111")
-    assert carried[27] == "checked, price is fair"  # AB: Comp Check (Airbnb)
+    carried = next(r for r in rows if r[27] == "AAAA111111")
+    assert carried[28] == "checked, price is fair"  # AC: Comp Check (Airbnb)
 
 
 def test_cancellation_alone_does_not_trigger_a_new_file(tmp_path):
@@ -136,7 +136,7 @@ def test_cancelled_booking_stays_visible_with_status_and_keeps_its_note(tmp_path
     wb = openpyxl.load_workbook(day1_file)
     ws = wb["Booking Quality Log"]
     for row in ws.iter_rows(min_row=5):
-        if row[26].value == "BBBB222222":  # AA: Reservation ID
+        if row[27].value == "BBBB222222":  # AB: Reservation ID
             row[31].value = "priced well, sorry to lose it"  # AF: Final PL Check
     wb.save(day1_file)
 
@@ -155,13 +155,13 @@ def test_cancelled_booking_stays_visible_with_status_and_keeps_its_note(tmp_path
     ws2 = wb2["Booking Quality Log"]
     rows = list(ws2.iter_rows(min_row=5, values_only=True))
 
-    cancelled_row = next(r for r in rows if r[26] == "BBBB222222")
-    assert cancelled_row[25] == "Cancelled"  # Z: Status
-    assert cancelled_row[21] == "n/a (cancelled)"  # V: Gap Before (d)
+    cancelled_row = next(r for r in rows if r[27] == "BBBB222222")
+    assert cancelled_row[26] == "Cancelled"  # AA: Status
+    assert cancelled_row[22] == "n/a (cancelled)"  # W: Gap Before (d)
     assert cancelled_row[31] == "priced well, sorry to lose it"  # AF: note carried forward
 
-    confirmed_row = next(r for r in rows if r[26] == "AAAA111111")
-    assert confirmed_row[25] == "Confirmed"
+    confirmed_row = next(r for r in rows if r[27] == "AAAA111111")
+    assert confirmed_row[26] == "Confirmed"
 
 
 def test_rows_sorted_by_booked_date_newest_first(tmp_path):
@@ -178,7 +178,7 @@ def test_rows_sorted_by_booked_date_newest_first(tmp_path):
     [file] = tmp_path.glob("*.xlsx")
     wb = openpyxl.load_workbook(file)
     ws = wb["Booking Quality Log"]
-    ids_in_order = [row[26] for row in ws.iter_rows(min_row=5, values_only=True)]
+    ids_in_order = [row[27] for row in ws.iter_rows(min_row=5, values_only=True)]
     assert ids_in_order == ["NEW222", "OLD111"]
 
 

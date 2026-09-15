@@ -28,6 +28,7 @@ def _row(res_id):
         market_p25=250.0,
         market_p90=420.0,
         stly_adr="no data",
+        ly_occ="no data",
         demand_tier="High",
         gap_before_days="first known booking in window",
         gap_before_signal=None,
@@ -46,7 +47,7 @@ def test_reads_reservation_ids_and_manual_columns(tmp_path):
     wb = new_workbook()
     build_booking_quality_sheet(wb, [_row("AAA111"), _row("BBB222")], dt.date(2026, 9, 1))
     ws = wb["Booking Quality Log"]
-    ws.cell(row=5, column=28, value="checked on airbnb")  # Comp Check for AAA111
+    ws.cell(row=5, column=29, value="checked on airbnb")  # Comp Check for AAA111
     ws.cell(row=6, column=33, value="looks great")  # Notes/Verdict for BBB222
     path = tmp_path / "prior.xlsx"
     wb.save(path)
@@ -54,7 +55,7 @@ def test_reads_reservation_ids_and_manual_columns(tmp_path):
     state = load_prior_reservation_state(path)
     assert set(state.keys()) == {"AAA111", "BBB222"}
     assert state["AAA111"][0] == "checked on airbnb"
-    assert state["BBB222"][5] == "looks great"
+    assert state["BBB222"][4] == "looks great"
 
 
 def test_row_with_all_blank_manual_columns_still_counted_for_skip_check(tmp_path):
@@ -65,16 +66,18 @@ def test_row_with_all_blank_manual_columns_still_counted_for_skip_check(tmp_path
 
     state = load_prior_reservation_state(path)
     assert "AAA111" in state
-    assert state["AAA111"] == (None, None, None, None, None, None)
+    assert state["AAA111"] == (None, None, None, None, None)
 
 
-def test_reads_an_older_layout_without_a_status_column(tmp_path):
-    # Simulates a file written by a version of this tool before the Status
-    # column existed: "Reservation ID" sits at Z (26) instead of AA (27),
-    # with manual columns starting right after it at AA (27). Locating
-    # "Reservation ID" by its header text (not a hardcoded column number)
-    # is what lets this old-layout file's notes still carry forward
-    # correctly into a newer-layout file.
+def test_reads_an_older_layout_from_before_status_and_ly_occ_automation(tmp_path):
+    # Simulates a file written by an older version of this tool: no
+    # Status column, Reservation ID at Z (26), and a manual "LY Weekday
+    # Occ." column that's since become the computed "LY occ." column (and
+    # so is correctly no longer in MANUAL_COLUMNS). Matching every column
+    # by header text -- not position -- is what lets this file's Comp
+    # Check and Notes/Verdict notes still carry forward correctly, while
+    # the now-obsolete manual "LY Weekday Occ." text is correctly left
+    # behind rather than misread into the wrong slot.
     wb = openpyxl.Workbook()
     del wb["Sheet"]
     ws = wb.create_sheet("Booking Quality Log")
@@ -92,9 +95,16 @@ def test_reads_an_older_layout_without_a_status_column(tmp_path):
         ws.cell(row=4, column=c, value=h)
     ws.cell(row=5, column=26, value="OLDID123")  # Z: Reservation ID (old position)
     ws.cell(row=5, column=27, value="checked, looked fine")  # old AA: Comp Check
+    ws.cell(row=5, column=28, value="65% last year")  # old AB: LY Weekday Occ. (obsolete manual text)
+    ws.cell(row=5, column=32, value="great find")  # old AF: Notes / Verdict
     path = tmp_path / "old_layout.xlsx"
     wb.save(path)
 
     state = load_prior_reservation_state(path)
     assert "OLDID123" in state
-    assert state["OLDID123"][0] == "checked, looked fine"
+    assert state["OLDID123"][0] == "checked, looked fine"  # Comp Check carried forward
+    assert state["OLDID123"][-1] == "great find"  # Notes/Verdict carried forward
+    # LY Weekday Occ.'s old manual text is nowhere in the result -- it's
+    # not one of the current MANUAL_COLUMNS, so it's correctly dropped
+    # rather than landing in some other column's slot.
+    assert "65% last year" not in state["OLDID123"]

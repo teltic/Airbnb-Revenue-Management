@@ -7,14 +7,16 @@ hand-typed manual columns, so a rerun can:
 
 Both needs read the same data, so one function serves both.
 
-Columns are located by reading the prior file's OWN header row rather than
-hardcoded column numbers: "Reservation ID" is found by its header text,
-and the 6 manual columns are read as whatever 6 columns immediately follow
-it -- not by matching their header text. This is deliberate: it's what
-lets a column be inserted (e.g. the "Status" column) or a manual header be
-renamed (e.g. "LY Weekday Occ." -> "LY occ.") in a newer version of this
-tool without breaking notes carried forward from a file an older version
-wrote, since "Reservation ID" is the one label that never changes.
+Every column is located by reading the prior file's OWN header row and
+matching header text, not a hardcoded or relative column number: this is
+deliberate. "Reservation ID" never changes, so it anchors the lookup even
+across a layout change. Each of the *current* tool's manual column names
+(workbook_build.MANUAL_COLUMNS) is then looked up by that same text in the
+OLD file -- a column present in the old file but no longer manual (e.g.
+"LY Weekday Occ." once it became the computed "LY occ." column) is
+correctly left behind rather than misread into the wrong slot, and a
+manual column that's brand new in this version just comes back blank for
+an older file that never had it.
 """
 
 from __future__ import annotations
@@ -23,16 +25,16 @@ from pathlib import Path
 
 import openpyxl
 
-from .workbook_build import HEADER_ROW, MANUAL_COLS_COUNT, SHEET_NAME
+from .workbook_build import HEADER_ROW, MANUAL_COLUMNS, SHEET_NAME
 
 RESERVATION_ID_HEADER = "Reservation ID"
 
 
 def load_prior_reservation_state(path: Path) -> dict[str, tuple]:
-    """Returns {reservation_id: (6 manual-column values)} for every row in
-    the prior file's "Booking Quality Log" sheet -- including rows where
-    all 6 manual values are still blank, since the keys alone are what the
-    daily skip check needs.
+    """Returns {reservation_id: (manual-column values, in MANUAL_COLUMNS
+    order)} for every row in the prior file's "Booking Quality Log" sheet
+    -- including rows where every manual value is still blank, since the
+    keys alone are what the daily skip check needs.
     """
     if not path.exists():
         return {}
@@ -42,12 +44,13 @@ def load_prior_reservation_state(path: Path) -> dict[str, tuple]:
     ws = wb[SHEET_NAME]
 
     header_row = ws[HEADER_ROW]
-    reservation_id_col = next(
-        (i for i, cell in enumerate(header_row) if cell.value == RESERVATION_ID_HEADER), None
-    )
+    header_index: dict[str, int] = {
+        cell.value: i for i, cell in enumerate(header_row) if cell.value
+    }
+    reservation_id_col = header_index.get(RESERVATION_ID_HEADER)
     if reservation_id_col is None:
         return {}
-    manual_cols_start = reservation_id_col + 1
+    manual_cols = [header_index.get(name) for name in MANUAL_COLUMNS]
 
     result: dict[str, tuple] = {}
     for row in ws.iter_rows(min_row=HEADER_ROW + 1):
@@ -57,8 +60,7 @@ def load_prior_reservation_state(path: Path) -> dict[str, tuple]:
         if not reservation_id:
             continue
         manual_values = tuple(
-            row[manual_cols_start + i].value if len(row) > manual_cols_start + i else None
-            for i in range(MANUAL_COLS_COUNT)
+            row[col].value if col is not None and len(row) > col else None for col in manual_cols
         )
         result[str(reservation_id)] = manual_values
     return result

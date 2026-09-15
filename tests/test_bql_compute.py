@@ -197,6 +197,29 @@ def test_cancelled_booking_does_not_affect_confirmed_neighbors_gaps():
     assert r3.gap_before_days == 5
 
 
+def test_ly_occ_shown_per_night_not_averaged():
+    res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 7), 400, 800, dt.date(2026, 8, 20), "A1")]
+    market = {
+        dt.date(2026, 9, 5): _market_day(occupancy_stly=20),
+        dt.date(2026, 9, 6): _market_day(occupancy_stly=65),
+    }
+    row = build_booking_rows("Test Property", res, market)[0]
+    assert row.ly_occ == "20%, 65%"
+
+
+def test_ly_occ_no_data_when_market_has_no_stly_occupancy():
+    res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "A1")]
+    row = build_booking_rows("Test Property", res, {})[0]
+    assert row.ly_occ == "no data"
+
+
+def test_ly_occ_partial_coverage_shows_no_data_per_missing_night():
+    res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 7), 400, 800, dt.date(2026, 8, 20), "A1")]
+    market = {dt.date(2026, 9, 5): _market_day(occupancy_stly=20)}  # 9/6 missing
+    row = build_booking_rows("Test Property", res, market)[0]
+    assert row.ly_occ == "20%, no data"
+
+
 def test_cancelled_booking_still_computed_target_adr_and_demand_tier():
     res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "A1", status="cancelled")]
     market = {dt.date(2026, 9, 5): _market_day(p75=380, occupancy=70)}
