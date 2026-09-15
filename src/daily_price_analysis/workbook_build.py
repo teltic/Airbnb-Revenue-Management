@@ -21,16 +21,22 @@ from .compute import DateRow
 from .market import CompsetInfo
 from .overrides import OverrideRow
 
-FILL_BOOKED = PatternFill("solid", fgColor="404040")
-FONT_BOOKED = Font(color="FFFFFF")
-FILL_ABOVE_CAP = PatternFill("solid", fgColor="C6E0B4")
-FILL_BELOW_TYPICAL = PatternFill("solid", fgColor="F8CBAD")
-FILL_WEEKEND = PatternFill("solid", fgColor="DDEBF7")
-FILL_OVERRIDE_POSITIVE = PatternFill("solid", fgColor="C6E0B4")
-FILL_OVERRIDE_NEGATIVE = PatternFill("solid", fgColor="F8CBAD")
-FILL_OVERRIDE_NEUTRAL = PatternFill("solid", fgColor="D9D9D9")
-FILL_NOTE = PatternFill("solid", fgColor="FFFF00")
-FILL_HEADER = PatternFill("solid", fgColor="D9E1F2")
+# openpyxl colors are 8-digit ARGB; the leading 2 digits are alpha
+# (opacity), NOT decoration -- a plain 6-digit RGB string silently becomes
+# "00" (fully transparent) alpha rather than opaque, which is why an
+# earlier version of this file's colors were all invisible despite the
+# conditional formatting and cell values being completely correct. Always
+# use the "FF" (opaque) prefix here.
+FILL_BOOKED = PatternFill("solid", fgColor="FF404040")
+FONT_BOOKED = Font(color="FFFFFFFF")
+FILL_ABOVE_CAP = PatternFill("solid", fgColor="FFC6E0B4")
+FILL_BELOW_TYPICAL = PatternFill("solid", fgColor="FFF8CBAD")
+FILL_WEEKEND = PatternFill("solid", fgColor="FFDDEBF7")
+FILL_OVERRIDE_POSITIVE = PatternFill("solid", fgColor="FFC6E0B4")
+FILL_OVERRIDE_NEGATIVE = PatternFill("solid", fgColor="FFF8CBAD")
+FILL_OVERRIDE_NEUTRAL = PatternFill("solid", fgColor="FFD9D9D9")
+FILL_NOTE = PatternFill("solid", fgColor="FFFFFF00")
+FILL_HEADER = PatternFill("solid", fgColor="FFD9E1F2")
 BOLD = Font(bold=True)
 
 MAIN_HEADERS = [
