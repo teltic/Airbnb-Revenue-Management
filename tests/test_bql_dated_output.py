@@ -22,8 +22,18 @@ def test_picks_most_recent_earlier_file_even_across_a_multi_day_gap(tmp_path):
     assert result == tmp_path / dated_filename(dt.date(2026, 9, 8))
 
 
-def test_ignores_same_day_and_future_files(tmp_path):
-    for d in [dt.date(2026, 9, 14), dt.date(2026, 9, 15), dt.date(2026, 9, 16)]:
+def test_prefers_todays_own_file_over_an_earlier_one(tmp_path):
+    # A same-day rerun (a second new booking shows up later the same day)
+    # must read back the manual notes typed into today's own file already,
+    # not fall back to an earlier day's.
+    for d in [dt.date(2026, 9, 14), dt.date(2026, 9, 15)]:
+        (tmp_path / dated_filename(d)).write_bytes(b"")
+    result = find_most_recent_prior_file(tmp_path, dt.date(2026, 9, 15))
+    assert result == tmp_path / dated_filename(dt.date(2026, 9, 15))
+
+
+def test_ignores_future_dated_files(tmp_path):
+    for d in [dt.date(2026, 9, 14), dt.date(2026, 9, 16)]:
         (tmp_path / dated_filename(d)).write_bytes(b"")
     result = find_most_recent_prior_file(tmp_path, dt.date(2026, 9, 15))
     assert result == tmp_path / dated_filename(dt.date(2026, 9, 14))

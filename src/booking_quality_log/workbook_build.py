@@ -18,25 +18,37 @@ from .compute import BookingRow
 
 SHEET_NAME = "Booking Quality Log"
 
-FILL_HEADER = PatternFill("solid", fgColor="D9E1F2")
+# openpyxl colors are 8-digit ARGB; the leading 2 digits are alpha
+# (opacity) -- a plain 6-digit RGB string silently becomes "00" (fully
+# transparent), so every color below carries an explicit "FF" (opaque)
+# prefix. Separately, Excel has an undocumented quirk specific to
+# conditional-formatting fills (differential styles / dxfs): a plain cell
+# fill uses PatternFill("solid", fgColor=...), but a fill used inside a
+# FormulaRule needs PatternFill(bgColor=...) with NO patternType instead --
+# Excel reads the swatch from bgColor there, not fgColor. (Confirmed the
+# hard way on the sibling daily_price_analysis tool -- see its
+# workbook_build.py.) FILL_HEADER is a plain cell fill, so it keeps
+# "solid" + fgColor; everything else here is only ever used inside a
+# FormulaRule, so it uses the bgColor-only dxf form.
+FILL_HEADER = PatternFill("solid", fgColor="FFD9E1F2")
 BOLD = Font(bold=True)
 TITLE_FONT = Font(bold=True, size=14)
 
 # vs-Target 8-tier green (above target) / amber (below target) scale,
 # colors matched exactly to the original workbook's differential styles.
 FILL_TARGET_TIERS = [
-    PatternFill("solid", fgColor="1A7F4B"),  # >= +50%
-    PatternFill("solid", fgColor="3FAE6E"),  # +25% to +50%
-    PatternFill("solid", fgColor="8FD19E"),  # +10% to +25%
-    PatternFill("solid", fgColor="D6EFDA"),  # 0% to +10%
-    PatternFill("solid", fgColor="FCE0A6"),  # -10% to 0%
-    PatternFill("solid", fgColor="F7C97A"),  # -25% to -10%
-    PatternFill("solid", fgColor="F0AA4D"),  # -50% to -25%
-    PatternFill("solid", fgColor="E08A2B"),  # < -50%
+    PatternFill(bgColor="FF1A7F4B"),  # >= +50%
+    PatternFill(bgColor="FF3FAE6E"),  # +25% to +50%
+    PatternFill(bgColor="FF8FD19E"),  # +10% to +25%
+    PatternFill(bgColor="FFD6EFDA"),  # 0% to +10%
+    PatternFill(bgColor="FFFCE0A6"),  # -10% to 0%
+    PatternFill(bgColor="FFF7C97A"),  # -25% to -10%
+    PatternFill(bgColor="FFF0AA4D"),  # -50% to -25%
+    PatternFill(bgColor="FFE08A2B"),  # < -50%
 ]
-FILL_FLAG_NOTE = PatternFill("solid", fgColor="FCEBC9")  # Midweek / 1-Night Stay
-FILL_UPSELL = PatternFill("solid", fgColor="E4D9F2")  # Gap signal: Upsell candidate
-FILL_LOS_DISCOUNT = PatternFill("solid", fgColor="D9E9F2")  # Gap signal: LOS-discount
+FILL_FLAG_NOTE = PatternFill(bgColor="FFFCEBC9")  # Midweek / 1-Night Stay
+FILL_UPSELL = PatternFill(bgColor="FFE4D9F2")  # Gap signal: Upsell candidate
+FILL_LOS_DISCOUNT = PatternFill(bgColor="FFD9E9F2")  # Gap signal: LOS-discount
 
 HEADERS = [
     "Property", "Check-in", "In Day", "Check-out", "Out Day", "Nights",

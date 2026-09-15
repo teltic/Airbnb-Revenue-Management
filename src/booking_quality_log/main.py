@@ -90,7 +90,14 @@ def run(
     build_booking_quality_sheet(wb, all_rows, START_DATE, manual_notes=prior_state)
 
     write_path = output_dir / dated_filename(today)
-    wb.save(write_path)
+    try:
+        wb.save(write_path)
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Could not write {write_path} -- it's most likely open in Excel "
+            f"(or another program) right now, which locks the file. Close it "
+            f"and run this again."
+        ) from exc
     logger.info("Saved %s", write_path)
     return True
 
