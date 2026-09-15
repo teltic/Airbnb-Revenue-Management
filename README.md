@@ -1,4 +1,4 @@
-# Airbnb-Revenue-Management
+# Pacing-Pickup-Tracker
 
 Daily pacing/pickup tracker for two PriceLabs listings (Mesquite Vacation
 Rental, Game Room), built against PriceLabs' Customer API. See
