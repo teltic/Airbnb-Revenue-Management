@@ -23,15 +23,28 @@ from .overrides import OverrideRow
 
 # openpyxl colors are 8-digit ARGB; the leading 2 digits are alpha
 # (opacity), NOT decoration -- a plain 6-digit RGB string silently becomes
-# "00" (fully transparent) alpha rather than opaque, which is why an
-# earlier version of this file's colors were all invisible despite the
-# conditional formatting and cell values being completely correct. Always
-# use the "FF" (opaque) prefix here.
-FILL_BOOKED = PatternFill("solid", fgColor="FF404040")
+# "00" (fully transparent) alpha rather than opaque. Always use the "FF"
+# (opaque) prefix.
+#
+# Separately -- and this is NOT the same bug -- Excel has an undocumented
+# quirk specific to conditional-formatting fills (dxfs): a normal cell
+# fill uses `PatternFill("solid", fgColor=...)`, but a fill used inside a
+# FormulaRule (i.e. serialized into <dxfs> rather than a plain cell style)
+# needs `PatternFill(bgColor=...)` with NO patternType instead -- Excel
+# reads the swatch from bgColor there, not fgColor, regardless of alpha
+# being correct. Confirmed against the original hand-built prototype's own
+# dxf XML, which uses exactly this bgColor-only, no-patternType form.
+# Mixing the two up is exactly why real Excel still showed nothing for the
+# booked/flag/weekend colors even after the alpha fix -- FILL_BOOKED,
+# FILL_ABOVE_CAP, FILL_BELOW_TYPICAL, and FILL_WEEKEND are only ever used
+# inside FormulaRule() below, so they use the dxf/bgColor form; the rest
+# are assigned directly as `cell.fill = ...` (a plain cell style), so they
+# correctly use "solid" + fgColor.
+FILL_BOOKED = PatternFill(bgColor="FF404040")
 FONT_BOOKED = Font(color="FFFFFFFF")
-FILL_ABOVE_CAP = PatternFill("solid", fgColor="FFC6E0B4")
-FILL_BELOW_TYPICAL = PatternFill("solid", fgColor="FFF8CBAD")
-FILL_WEEKEND = PatternFill("solid", fgColor="FFDDEBF7")
+FILL_ABOVE_CAP = PatternFill(bgColor="FFC6E0B4")
+FILL_BELOW_TYPICAL = PatternFill(bgColor="FFF8CBAD")
+FILL_WEEKEND = PatternFill(bgColor="FFDDEBF7")
 FILL_OVERRIDE_POSITIVE = PatternFill("solid", fgColor="FFC6E0B4")
 FILL_OVERRIDE_NEGATIVE = PatternFill("solid", fgColor="FFF8CBAD")
 FILL_OVERRIDE_NEUTRAL = PatternFill("solid", fgColor="FFD9D9D9")
