@@ -16,10 +16,10 @@ new listing" apart from "API silently truncated" using row count/date
 span alone. Since this script is meant to run unattended on a daily
 schedule, it no longer hard-stops on suspiciously thin data when no CSV
 fallback is configured -- it logs a clear warning and proceeds with
-whatever the API returned (LY/2LY ADR and This-Month aggregates for that
-property may just be incomplete, which is expected for a young listing).
-A `--bookings-csv` fallback is still fully supported and used automatically
-if you do have a fuller manual export to backfill with.
+whatever the API returned (the LY price lookup and this property's own
+booking-window figure may just be incomplete, which is expected for a
+young listing). A `--bookings-csv` fallback is still fully supported and
+used automatically if you do have a fuller manual export to backfill with.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import logging
+import statistics
 from dataclasses import dataclass
 
 from .pricelabs_client import PriceLabsClient
@@ -56,6 +57,7 @@ class Reservation:
     check_out: dt.date
     adr: float
     booking_status: str
+    booked_date: dt.date | None = None
 
     @property
     def is_booked(self) -> bool:
@@ -64,6 +66,15 @@ class Reservation:
 
 def _parse_date(s: str) -> dt.date:
     return dt.date.fromisoformat(s[:10])
+
+
+def _parse_optional_date(s: str | None) -> dt.date | None:
+    if not s or s == "-1":
+        return None
+    try:
+        return dt.date.fromisoformat(s[:10])
+    except ValueError:
+        return None
 
 
 def _from_api_rows(rows: list[dict]) -> list[Reservation]:
@@ -80,6 +91,7 @@ def _from_api_rows(rows: list[dict]) -> list[Reservation]:
                     check_out=_parse_date(row["check_out"]),
                     adr=adr,
                     booking_status=row.get("booking_status", ""),
+                    booked_date=_parse_optional_date(row.get("booked_date")),
                 )
             )
         except (KeyError, ValueError, TypeError) as exc:
@@ -101,8 +113,8 @@ def load_reservations_csv(path: str, listing_name: str | None = None) -> list[Re
 
     If `listing_name` is given, only rows for that property are returned --
     a portfolio-wide export covers every listing in one file, and without
-    this filter one property's bookings would leak into another's LY/2LY
-    ADR and Max/Floor calculations. Matching is whitespace/case-normalized
+    this filter one property's bookings would leak into another's LY price
+    lookup and booking-window figure. Matching is whitespace/case-normalized
     since PMS-sourced listing names can have inconsistent spacing (e.g.
     "Sauna  Cold Plunge  5 BR" vs. a config name of "Sauna Cold Plunge 5BR").
     """
@@ -127,6 +139,7 @@ def load_reservations_csv(path: str, listing_name: str | None = None) -> list[Re
                         check_out=_parse_date(row["Check-out Date"]),
                         adr=float(row["Average Daily Rate"]),
                         booking_status=row["Booking Status"],
+                        booked_date=_parse_optional_date(row.get("Booked Date")),
                     )
                 )
             except (KeyError, ValueError) as exc:
@@ -207,8 +220,8 @@ def fetch_reservations_verified(
         "Reservation history for listing %s looks thin: got %d rows, "
         "earliest check-in %s, requested back to %s, and no --bookings-csv "
         "fallback was given. Proceeding with this partial history anyway "
-        "-- LY/2LY ADR and This-Month aggregates for this property may be "
-        "incomplete. This is expected for a genuinely new listing; if you "
+        "-- the LY price lookup and this property's own booking-window "
+        "figure may be incomplete. This is expected for a genuinely new listing; if you "
         "suspect this is the known PriceLabs truncation bug instead, export "
         "the full history CSV from the PriceLabs dashboard (columns: %s) "
         "and rerun with --bookings-csv to backfill it.",
@@ -219,6 +232,27 @@ def fetch_reservations_verified(
         CSV_COLUMNS,
     )
     return reservations
+
+
+def median_booking_window_days(reservations: list[Reservation]) -> float | None:
+    """Median days between when a booking was made and its check-in date,
+    across this property's own actual confirmed reservations -- used to
+    decide whether an unbooked date is "close enough" to check-in that
+    still-being-unbooked is a meaningful demand signal (see
+    compute.in_booking_window). Grounded in this specific property's own
+    booking pattern rather than a market-wide average, matching how the
+    sibling booking_quality_log tool computes the same concept. Returns
+    None if there's no reservation with a usable booked_date, in which
+    case the caller falls back to a fixed-day default.
+    """
+    windows = [
+        (r.check_in - r.booked_date).days
+        for r in reservations
+        if r.is_booked and r.booked_date is not None and r.check_in >= r.booked_date
+    ]
+    if not windows:
+        return None
+    return statistics.median(windows)
 
 
 def nightly_adr_series(reservations: list[Reservation]) -> dict[dt.date, float]:

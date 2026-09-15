@@ -93,9 +93,9 @@ overwriting good override data with blanks.
 If a property's reservation history looks unusually thin and no
 `--bookings-csv` is given, the run does **not** stop (this matters for
 unattended daily automation) -- it logs a warning and proceeds with
-whatever history the API returned. LY/2LY ADR and This-Month aggregates
-for that property may just be incomplete, which is expected for a young
-listing.
+whatever history the API returned. The LY price lookup and that
+property's own booking-window figure may just be incomplete, which is
+expected for a young listing.
 
 ## Known limitations / assumptions worth knowing before you trust this
 
@@ -128,28 +128,47 @@ listing.
    listing" apart from "API truncated it" from row count/date span alone,
    and this script needs to run unattended on a schedule,
    `bookings.fetch_reservations_verified` no longer hard-stops on thin
-   data -- it logs a warning and proceeds (LY/2LY ADR and This-Month
-   aggregates for that property may be incomplete). A `--bookings-csv`
-   export is still used automatically to backfill history if you provide
-   one and the API result looks thin.
+   data -- it logs a warning and proceeds (the LY price lookup and that
+   property's own booking-window figure may be incomplete). A
+   `--bookings-csv` export is still used automatically to backfill
+   history if you provide one and the API result looks thin.
 
-4. **"This Month" Max/Floor pools every year of that calendar month.**
-   e.g. a row in September 2026 is compared against *every* September in
-   the available booking history, not just September 2026 -- otherwise a
-   single month rarely has 3+ same-category nights to compute a floor
-   from. This is a reasonable reading of the original spec but wasn't
-   explicitly confirmed; flagged clearly in the "How This Works" tab.
+4. **Flag logic is occupancy-driven, not history-driven** (redesigned
+   2026-09-15 -- an earlier version inferred "typical" price from this
+   property's own past booked prices, which just launders forward
+   whatever pricing mistakes already happened). See the "How This Works"
+   tab for the full rule; in short, Flag only fires once a date is close
+   enough to check-in that still being unbooked means something (that
+   property's own median days-between-booking-and-check-in, or 45 days if
+   there isn't history to compute that yet), then compares market
+   occupancy against Market Percentile. A secondary check flags a >20%
+   price swing vs. the same date last year regardless of that gate. Flag
+   is now a plain computed value rather than a live Excel formula (unlike
+   Market Percentile, which still is) -- see caveat 6.
 
-5. **Blended ADR, not per-night.** LY/2LY ADR and the promo-range price
+5. **The Airbnb price-adjustment factor is a placeholder, not a validated
+   number.** The Promo Tracker's "Current Price (Airbnb-adjusted)" column
+   multiplies PriceLabs' Current Price by a flat 0.90 (config:
+   `promo.AIRBNB_ADJUSTMENT_FACTOR`) to approximate Airbnb's own combined
+   discount + PMS markup on top of the PriceLabs feed. That factor hasn't
+   been validated against real side-by-side numbers yet -- treat the
+   adjusted column as a rough comparison point until it has been.
+
+6. **Blended, not per-night.** LY price and the promo-range price
    lookups all come from stay-level or range-level data, not true
    per-night rates -- a multi-night reservation's average rate is applied
    to every night in that stay. By design, matching the original spec.
+   Also worth knowing: Flag no longer recalculates live if you hand-edit
+   Current Price in Excel (Market Percentile still does) -- not expected
+   to matter in normal use, since Current Price is pulled fresh from
+   PriceLabs every run rather than something you'd hand-edit for real
+   decisions.
 
-6. **Holiday/Event dates never get a Flag**, and comp-set methodology can
+7. **Holiday/Event dates never get a Flag**, and comp-set methodology can
    differ silently between properties (see the Compset Overview tab) --
    both deliberate, both explained in the "How This Works" tab.
 
-7. **A comp-set split into multiple bedroom-count segments uses the
+8. **A comp-set split into multiple bedroom-count segments uses the
    largest one for percentiles.** Some listings' comp-set data comes back
    as several sub-groups (one per bedroom count) instead of one blended
    group -- caught on the first live run, where a 1-listing sub-group was
@@ -220,7 +239,7 @@ src/daily_price_analysis/
   calendar.py, market.py,    # response parsers -- market.py shared by both tools
   overrides.py, bookings.py
   promo.py                   # Promo Tracker date-range/price-range expansion
-  compute.py                 # row-building + flag/threshold logic
+  compute.py                 # row-building + occupancy-driven Flag logic
   workbook_build.py          # openpyxl workbook construction
   workbook_state.py          # read-back of Notes + Promo tabs for reruns
   dated_output.py            # daily-snapshot filename/carry-forward logic

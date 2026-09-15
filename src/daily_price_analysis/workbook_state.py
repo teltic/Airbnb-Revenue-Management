@@ -43,9 +43,14 @@ def load_preserved_notes(path: Path, tab_name: str) -> dict[dt.date, tuple[objec
     return preserved
 
 
-def load_promo_tab_rows(path: Path, promo_tab_name: str) -> list[list]:
-    """Returns the raw row values (excluding header) of a Promo Tracker tab,
-    verbatim, so they can be re-written unchanged into the new workbook.
+def load_promo_tab_rows(path: Path, promo_tab_name: str) -> list[dict[str, object]]:
+    """Returns each row of a Promo Tracker tab as {header_name: value},
+    keyed by whatever header text is actually in row 1 of the existing
+    file -- not by column position. This makes reruns robust to the sheet
+    schema changing between versions of this script (a column added,
+    reordered, or removed): an older file's rows just won't have a key for
+    a header that didn't exist yet, and callers use `.get()` accordingly,
+    rather than needing an explicit migration step keyed to file version.
     """
     if not path.exists():
         return []
@@ -53,9 +58,10 @@ def load_promo_tab_rows(path: Path, promo_tab_name: str) -> list[list]:
     if promo_tab_name not in wb.sheetnames:
         return []
     ws = wb[promo_tab_name]
+    headers = [c.value for c in ws[1]]
     rows = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         if all(v is None for v in row):
             continue
-        rows.append(list(row))
+        rows.append({headers[i]: v for i, v in enumerate(row) if i < len(headers) and headers[i]})
     return rows
