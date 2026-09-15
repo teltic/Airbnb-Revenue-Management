@@ -21,14 +21,19 @@ def dated_filename(date: dt.date) -> str:
 def resolve_output_paths(
     output_dir: Path | None, output_path: Path, today: dt.date
 ) -> tuple[Path, Path | None]:
-    """Decide where to write today's workbook and where to read
-    yesterday's (or the most recent prior day's) Notes/Promo data from.
+    """Decide where to write today's workbook and where to read prior
+    Notes/Promo data from.
 
     Without `output_dir`, both are the same fixed `output_path` --
     matching the original "overwrite one file in place" behavior. With
     `output_dir`, writes go to a new dated file each day and Notes/Promo
-    are carried forward from the latest earlier-dated file already present
-    in that directory (if any).
+    are carried forward from the most recent dated file already present in
+    that directory whose date is today or earlier (never a future-dated
+    file). Preferring *today's own* file when one already exists (rather
+    than always the latest strictly-earlier one) matters for a same-day
+    rerun: if you've already generated today's file and typed Notes or
+    Promo rows into it, rerunning the script the same day must read those
+    back rather than silently discarding them.
     """
     if output_dir is None:
         return output_path, output_path
@@ -42,7 +47,7 @@ def resolve_output_paths(
         if not match:
             continue
         file_date = dt.date.fromisoformat(match.group(1))
-        if file_date < today and (latest is None or file_date > latest[0]):
+        if file_date <= today and (latest is None or file_date > latest[0]):
             latest = (file_date, candidate)
 
     preserve_source_path = latest[1] if latest else None
