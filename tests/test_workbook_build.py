@@ -121,5 +121,8 @@ def test_overrides_sheet_colors_by_sign():
     ws = wb["Overrides - Test"]
     assert ws["A2"].value.date() == dt.date(2026, 9, 12)
     assert ws["B2"].value == "-10%"
-    assert ws["B2"].fill.fgColor.rgb == "00F8CBAD"
-    assert ws["B3"].fill.fgColor.rgb == "00D9D9D9"
+    # Must be fully opaque (FF alpha prefix) -- a plain 6-digit RGB string
+    # silently becomes fully transparent (00 alpha) in openpyxl, which was
+    # a real bug here: every color in the workbook rendered invisibly.
+    assert ws["B2"].fill.fgColor.rgb == "FFF8CBAD"
+    assert ws["B3"].fill.fgColor.rgb == "FFD9D9D9"
