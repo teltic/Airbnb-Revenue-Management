@@ -18,6 +18,7 @@ class MarketDay:
     p75: float | None
     p90: float | None
     occupancy_stly: float | None
+    occupancy: float | None = None
 
 
 @dataclass(frozen=True)
@@ -72,12 +73,16 @@ def parse_market_data(raw: dict) -> tuple[dict[dt.date, MarketDay], CompsetInfo]
     price_cat_name, price_cat = _select_primary_category(price_section)
 
     occ_by_date: dict[str, float] = {}
+    current_occ_by_date: dict[str, float] = {}
     if occ_cat:
         x_values = occ_cat.get("X_values", [])
         y_values = occ_cat.get("Y_values", [])
         stly_idx = OCC_LABELS.index("Occupancy_STLY")
         if len(y_values) > stly_idx:
             occ_by_date = dict(zip(x_values, y_values[stly_idx]))
+        current_idx = OCC_LABELS.index("Occupancy")
+        if len(y_values) > current_idx:
+            current_occ_by_date = dict(zip(x_values, y_values[current_idx]))
 
     price_by_date: dict[str, tuple] = {}
     if price_cat:
@@ -88,7 +93,7 @@ def parse_market_data(raw: dict) -> tuple[dict[dt.date, MarketDay], CompsetInfo]
             for i, date_str in enumerate(x_values):
                 price_by_date[date_str] = tuple(round(v, 2) if v is not None else None for v in (p25[i], p50[i], p75[i], p90[i]))
 
-    all_dates = set(occ_by_date) | set(price_by_date)
+    all_dates = set(occ_by_date) | set(price_by_date) | set(current_occ_by_date)
     result: dict[dt.date, MarketDay] = {}
     for date_str in all_dates:
         p25, p50, p75, p90 = price_by_date.get(date_str, (None, None, None, None))
@@ -98,6 +103,7 @@ def parse_market_data(raw: dict) -> tuple[dict[dt.date, MarketDay], CompsetInfo]
             p75=p75,
             p90=p90,
             occupancy_stly=occ_by_date.get(date_str),
+            occupancy=current_occ_by_date.get(date_str),
         )
 
     all_categories = list(price_section.get("Category", {}).keys()) or list(
