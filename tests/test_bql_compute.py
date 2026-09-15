@@ -158,3 +158,48 @@ def test_reservation_id_prefers_confirmation_code():
     res = [_res("internal-uuid-123", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "HMT5EBPQ54")]
     row = build_booking_rows("Test Property", res, {})[0]
     assert row.reservation_id == "HMT5EBPQ54"
+
+
+def test_confirmed_rows_marked_confirmed():
+    res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "A1")]
+    row = build_booking_rows("Test Property", res, {})[0]
+    assert row.status == "Confirmed"
+
+
+def test_cancelled_booking_still_gets_a_row_marked_cancelled():
+    res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "A1", status="cancelled")]
+    rows = build_booking_rows("Test Property", res, {})
+    assert len(rows) == 1
+    assert rows[0].status == "Cancelled"
+
+
+def test_cancelled_booking_gap_fields_are_not_applicable():
+    res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "A1", status="cancelled")]
+    row = build_booking_rows("Test Property", res, {})[0]
+    assert row.gap_before_days == "n/a (cancelled)"
+    assert row.gap_before_signal is None
+    assert row.gap_after_days == "n/a (cancelled)"
+    assert row.gap_after_signal is None
+
+
+def test_cancelled_booking_does_not_affect_confirmed_neighbors_gaps():
+    res = [
+        _res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "A1"),
+        _res("r2", dt.date(2026, 9, 7), dt.date(2026, 9, 8), 400, 400, dt.date(2026, 8, 20), "A2", status="cancelled"),
+        _res("r3", dt.date(2026, 9, 11), dt.date(2026, 9, 12), 400, 400, dt.date(2026, 8, 20), "A3"),
+    ]
+    rows = build_booking_rows("Test Property", res, {})
+    r1 = next(r for r in rows if r.reservation_id == "A1")
+    r3 = next(r for r in rows if r.reservation_id == "A3")
+    # The cancelled r2 doesn't count as a calendar neighbor -- r1 and r3
+    # are adjacent confirmed bookings with a 5-night gap between them.
+    assert r1.gap_after_days == 5
+    assert r3.gap_before_days == 5
+
+
+def test_cancelled_booking_still_computed_target_adr_and_demand_tier():
+    res = [_res("r1", dt.date(2026, 9, 5), dt.date(2026, 9, 6), 400, 400, dt.date(2026, 8, 20), "A1", status="cancelled")]
+    market = {dt.date(2026, 9, 5): _market_day(p75=380, occupancy=70)}
+    row = build_booking_rows("Test Property", res, market)[0]
+    assert row.target_adr_p75 == 380
+    assert row.demand_tier == "High"

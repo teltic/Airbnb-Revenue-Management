@@ -86,7 +86,7 @@ def test_new_booking_writes_and_carries_manual_notes_forward(tmp_path):
     [day1_file] = tmp_path.glob("*.xlsx")
     wb = openpyxl.load_workbook(day1_file)
     ws = wb["Booking Quality Log"]
-    ws.cell(row=5, column=27, value="checked, price is fair")
+    ws.cell(row=5, column=28, value="checked, price is fair")
     wb.save(day1_file)
 
     res_day3 = res_day1 + [_reservation_row("r2", "2026-09-20", "2026-09-22", "BBBB222222")]
@@ -99,11 +99,11 @@ def test_new_booking_writes_and_carries_manual_notes_forward(tmp_path):
     wb2 = openpyxl.load_workbook(files[-1])
     ws2 = wb2["Booking Quality Log"]
     rows = list(ws2.iter_rows(min_row=5, values_only=True))
-    ids = {r[25] for r in rows}
+    ids = {r[26] for r in rows}  # AA: Reservation ID
     assert ids == {"AAAA111111", "BBBB222222"}
 
-    carried = next(r for r in rows if r[25] == "AAAA111111")
-    assert carried[26] == "checked, price is fair"
+    carried = next(r for r in rows if r[26] == "AAAA111111")
+    assert carried[27] == "checked, price is fair"  # AB: Comp Check (Airbnb)
 
 
 def test_cancellation_alone_does_not_trigger_a_new_file(tmp_path):
@@ -113,12 +113,73 @@ def test_cancellation_alone_does_not_trigger_a_new_file(tmp_path):
     ]
     _run(tmp_path, dt.date(2026, 9, 15), res)
 
-    # r2 vanishes from the confirmed set (as if cancelled) -- no brand-new
-    # booking appeared, so per Thomas's choice this must still skip.
-    res_after_cancellation = [_reservation_row("r1", "2026-09-05", "2026-09-07", "AAAA111111")]
+    # r2 comes back cancelled -- no brand-new *confirmed* booking appeared,
+    # so per Thomas's choice this must still skip (even though r2 will now
+    # show up as a Cancelled row once a file IS eventually written).
+    res_after_cancellation = [
+        _reservation_row("r1", "2026-09-05", "2026-09-07", "AAAA111111"),
+        _reservation_row("r2", "2026-09-10", "2026-09-11", "BBBB222222", status="cancelled"),
+    ]
     wrote = _run(tmp_path, dt.date(2026, 9, 16), res_after_cancellation)
     assert wrote is False
     assert len(list(tmp_path.glob("*.xlsx"))) == 1
+
+
+def test_cancelled_booking_stays_visible_with_status_and_keeps_its_note(tmp_path):
+    res_day1 = [
+        _reservation_row("r1", "2026-09-05", "2026-09-07", "AAAA111111"),
+        _reservation_row("r2", "2026-09-10", "2026-09-11", "BBBB222222"),
+    ]
+    _run(tmp_path, dt.date(2026, 9, 15), res_day1)
+
+    [day1_file] = tmp_path.glob("*.xlsx")
+    wb = openpyxl.load_workbook(day1_file)
+    ws = wb["Booking Quality Log"]
+    for row in ws.iter_rows(min_row=5):
+        if row[26].value == "BBBB222222":  # AA: Reservation ID
+            row[31].value = "priced well, sorry to lose it"  # AF: Final PL Check
+    wb.save(day1_file)
+
+    # r2 is now cancelled, and r3 is a brand-new confirmed booking (needed
+    # to actually trigger a write, since a cancellation alone never does).
+    res_day2 = [
+        _reservation_row("r1", "2026-09-05", "2026-09-07", "AAAA111111"),
+        _reservation_row("r2", "2026-09-10", "2026-09-11", "BBBB222222", status="cancelled"),
+        _reservation_row("r3", "2026-09-25", "2026-09-27", "CCCC333333"),
+    ]
+    wrote = _run(tmp_path, dt.date(2026, 9, 16), res_day2)
+    assert wrote is True
+
+    files = sorted(tmp_path.glob("*.xlsx"))
+    wb2 = openpyxl.load_workbook(files[-1])
+    ws2 = wb2["Booking Quality Log"]
+    rows = list(ws2.iter_rows(min_row=5, values_only=True))
+
+    cancelled_row = next(r for r in rows if r[26] == "BBBB222222")
+    assert cancelled_row[25] == "Cancelled"  # Z: Status
+    assert cancelled_row[21] == "n/a (cancelled)"  # V: Gap Before (d)
+    assert cancelled_row[31] == "priced well, sorry to lose it"  # AF: note carried forward
+
+    confirmed_row = next(r for r in rows if r[26] == "AAAA111111")
+    assert confirmed_row[25] == "Confirmed"
+
+
+def test_rows_sorted_by_booked_date_newest_first(tmp_path):
+    res = [
+        _reservation_row("r1", "2026-09-05", "2026-09-07", "OLD111"),  # booked_date 2026-08-20 (fixed in helper)
+    ]
+    res[0]["booked_date"] = "2026-08-01"
+    res.append(
+        {**_reservation_row("r2", "2026-09-10", "2026-09-11", "NEW222"), "booked_date": "2026-09-14"}
+    )
+    wrote = _run(tmp_path, dt.date(2026, 9, 15), res)
+    assert wrote is True
+
+    [file] = tmp_path.glob("*.xlsx")
+    wb = openpyxl.load_workbook(file)
+    ws = wb["Booking Quality Log"]
+    ids_in_order = [row[26] for row in ws.iter_rows(min_row=5, values_only=True)]
+    assert ids_in_order == ["NEW222", "OLD111"]
 
 
 def test_force_writes_even_with_no_new_booking(tmp_path):

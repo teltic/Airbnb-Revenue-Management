@@ -163,19 +163,25 @@ listing.
 ## Booking Quality Log
 
 One workbook, two tabs ("Read Me" + "Booking Quality Log"), covering both
-properties combined -- one row per confirmed booking with check-in on or
-after **2026-09-01** (a fixed cutoff, by explicit request -- not a rolling
+properties combined -- one row per booking with check-in on or after
+**2026-09-01** (a fixed cutoff, by explicit request -- not a rolling
 "today onward" window, so it won't silently start showing fewer rows as
-time passes; ask if you'd rather it rolled forward instead).
+time passes; ask if you'd rather it rolled forward instead), sorted by
+**Booked date, newest first** (not by check-in).
 
 Each row carries: nights/stay pattern/1-night flag, booking-window vs. that
 property's own median lead time, your ADR vs. the comp set's 75th-percentile
 target (both properties are Premium tier), market P25/P90 for context,
 same-date-last-year ADR where available, a demand tier from comp-set
-occupancy, and a Gap Before/After signal ("Upsell candidate" on a 1-night
-gap, "LOS-discount candidate" on a 2-night gap, each noting how often the
-comp set's occupancy suggests that gap fills on its own). Full plain-language
-descriptions are in the workbook's own "Read Me" tab.
+occupancy, a Gap Before/After signal ("Upsell candidate" on a 1-night gap,
+"LOS-discount candidate" on a 2-night gap, each noting how often the comp
+set's occupancy suggests that gap fills on its own), and a **Status**
+column (Confirmed / Cancelled) -- a booking that later gets cancelled stays
+on the log, grayed out, instead of disappearing, so any note already typed
+on it isn't lost and a cancelled booking is still there to learn from. Gap
+Before/After don't apply to a cancelled booking (it no longer holds any
+calendar space), so those show "n/a (cancelled)" instead of a number. Full
+plain-language descriptions are in the workbook's own "Read Me" tab.
 
 ### Usage
 
@@ -198,13 +204,16 @@ since the last file was written triggers a new file -- a cancellation or a
 guest's dates changing on an existing booking does not, by itself, trigger
 one (ask if you'd rather those also triggered a refresh).
 
-**Manual note columns never get erased.** Comp Check (Airbnb), LY Weekday
-Occ., Pacing Push %, LOS Discount, Final PL Check, and Notes/Verdict are
+**Manual note columns never get erased.** Comp Check (Airbnb), LY occ.,
+Pacing Push %, LOS Discount, Final PL Check, and Notes/Verdict are
 hand-typed, never computed. A hidden **Reservation ID** column (PriceLabs'
 own channel confirmation code, e.g. an Airbnb code like `HMT5EBPQ54`) keys
 each row so that whenever a new file is written, any note you typed on a
-booking that's still in view is carried forward from the most recent prior
-file automatically.
+booking that's still in view -- including one that's since been cancelled
+-- is carried forward from the most recent prior file automatically. This
+lookup is done by each column's header text at read time (not a fixed
+column position), so it also survives a future column being added or a
+manual column being renamed.
 
 ## Project layout
 

@@ -50,6 +50,7 @@ class BookingRow:
     gap_before_signal: str | None
     gap_after_days: int | str | None
     gap_after_signal: str | None
+    status: str
     reservation_id: str
 
 
@@ -137,34 +138,102 @@ def _stly_adr(stay_dates: list[dt.date], nightly_adr: dict[dt.date, float]) -> f
     return round(sum(matched) / len(matched), 2)
 
 
+CANCELLED_GAP_NOTE = "n/a (cancelled)"
+
+
+def _build_row(
+    r: Reservation,
+    status: str,
+    gap_before_days: int | str | None,
+    gap_before_signal: str | None,
+    gap_after_days: int | str | None,
+    gap_after_signal: str | None,
+    property_name: str,
+    market: dict[dt.date, MarketDay],
+    nightly_adr: dict[dt.date, float],
+    median_bw: float | None,
+    target_percentile_attr: str,
+) -> BookingRow:
+    stay_dates = _stay_dates(r.check_in, r.check_out)
+
+    target_p75 = _average_market(stay_dates, market, target_percentile_attr)
+    market_p25 = _average_market(stay_dates, market, "p25")
+    market_p90 = _average_market(stay_dates, market, "p90")
+    if target_p75 is None:
+        vs_target_dollar: float | str | None = NOT_APPLICABLE
+        vs_target_pct: float | str | None = NOT_APPLICABLE
+        target_p75_display: float | str | None = None
+    else:
+        vs_target_dollar = round(r.adr - target_p75, 2)
+        vs_target_pct = round((r.adr - target_p75) / target_p75, 4) if target_p75 else NOT_APPLICABLE
+        target_p75_display = round(target_p75, 2)
+
+    avg_occupancy = _average_market(stay_dates, market, "occupancy")
+    booking_window_days = (r.check_in - r.booked_date).days if r.booked_date else None
+
+    return BookingRow(
+        property_name=property_name,
+        check_in=r.check_in,
+        check_out=r.check_out,
+        nights=r.nights,
+        stay_pattern=_stay_pattern(r.check_in, r.check_out),
+        one_night_stay=r.nights == 1,
+        booked_date=r.booked_date,
+        booking_window_days=booking_window_days,
+        bw_vs_median=_bw_vs_median(booking_window_days, median_bw),
+        my_adr=round(r.adr, 2),
+        my_revenue=round(r.revenue, 2),
+        source=r.booking_channel,
+        target_adr_p75=target_p75_display,
+        vs_target_dollar=vs_target_dollar,
+        vs_target_pct=vs_target_pct,
+        market_p25=round(market_p25, 2) if market_p25 is not None else None,
+        market_p90=round(market_p90, 2) if market_p90 is not None else None,
+        stly_adr=_stly_adr(stay_dates, nightly_adr),
+        demand_tier=demand_tier_bucket(avg_occupancy),
+        gap_before_days=gap_before_days,
+        gap_before_signal=gap_before_signal,
+        gap_after_days=gap_after_days,
+        gap_after_signal=gap_after_signal,
+        status=status,
+        reservation_id=r.display_id,
+    )
+
+
 def build_booking_rows(
     property_name: str,
-    all_confirmed: list[Reservation],
+    all_reservations: list[Reservation],
     market: dict[dt.date, MarketDay],
     target_percentile_attr: str = "p75",
 ) -> list[BookingRow]:
-    """Build one row per confirmed booking with check-in >= START_DATE,
-    sorted by check-in. `all_confirmed` should include bookings well
-    outside that window too -- they're used as gap/STLY/median context,
-    just not turned into their own rows.
+    """Build one row per booking with check-in >= START_DATE, both
+    confirmed and cancelled. `all_reservations` should include bookings
+    well outside that window too -- they're used as gap/STLY/median
+    context, just not turned into their own rows.
+
+    Gap Before/After, STLY ADR, and the booking-window median are all
+    computed from confirmed bookings only, since a cancelled booking no
+    longer holds any calendar space -- there's no real "gap" around one.
+    Cancelled bookings still get a row (marked Status = Cancelled) with
+    everything else computed the same way, so a note typed on one before
+    it was cancelled isn't silently lost, and so a cancelled high- or
+    low-ADR booking stays visible for review.
     """
-    ordered = sorted(all_confirmed, key=lambda r: r.check_in)
-    nightly_adr = nightly_adr_series(ordered)
+    confirmed = sorted([r for r in all_reservations if r.is_confirmed], key=lambda r: r.check_in)
+    nightly_adr = nightly_adr_series(confirmed)
 
     booking_windows = [
-        (r.check_in - r.booked_date).days for r in ordered if r.booked_date is not None
+        (r.check_in - r.booked_date).days for r in confirmed if r.booked_date is not None
     ]
     median_bw = statistics.median(booking_windows) if booking_windows else None
 
     rows: list[BookingRow] = []
-    for i, r in enumerate(ordered):
+    for i, r in enumerate(confirmed):
         if r.check_in < START_DATE:
             continue
 
-        stay_dates = _stay_dates(r.check_in, r.check_out)
-
-        prev = ordered[i - 1] if i > 0 else None
-        nxt = ordered[i + 1] if i + 1 < len(ordered) else None
+        prev = confirmed[i - 1] if i > 0 else None
+        nxt = confirmed[i + 1] if i + 1 < len(confirmed) else None
 
         if prev is not None:
             gap_before_days = (r.check_in - prev.check_out).days
@@ -184,47 +253,22 @@ def build_booking_rows(
             gap_after_days = "last known booking in window"
             gap_after_signal = None
 
-        target_p75 = _average_market(stay_dates, market, target_percentile_attr)
-        market_p25 = _average_market(stay_dates, market, "p25")
-        market_p90 = _average_market(stay_dates, market, "p90")
-        if target_p75 is None:
-            vs_target_dollar: float | str | None = NOT_APPLICABLE
-            vs_target_pct: float | str | None = NOT_APPLICABLE
-            target_p75_display: float | str | None = None
-        else:
-            vs_target_dollar = round(r.adr - target_p75, 2)
-            vs_target_pct = round((r.adr - target_p75) / target_p75, 4) if target_p75 else NOT_APPLICABLE
-            target_p75_display = round(target_p75, 2)
-
-        avg_occupancy = _average_market(stay_dates, market, "occupancy")
-        booking_window_days = (r.check_in - r.booked_date).days if r.booked_date else None
-
         rows.append(
-            BookingRow(
-                property_name=property_name,
-                check_in=r.check_in,
-                check_out=r.check_out,
-                nights=r.nights,
-                stay_pattern=_stay_pattern(r.check_in, r.check_out),
-                one_night_stay=r.nights == 1,
-                booked_date=r.booked_date,
-                booking_window_days=booking_window_days,
-                bw_vs_median=_bw_vs_median(booking_window_days, median_bw),
-                my_adr=round(r.adr, 2),
-                my_revenue=round(r.revenue, 2),
-                source=r.booking_channel,
-                target_adr_p75=target_p75_display,
-                vs_target_dollar=vs_target_dollar,
-                vs_target_pct=vs_target_pct,
-                market_p25=round(market_p25, 2) if market_p25 is not None else None,
-                market_p90=round(market_p90, 2) if market_p90 is not None else None,
-                stly_adr=_stly_adr(stay_dates, nightly_adr),
-                demand_tier=demand_tier_bucket(avg_occupancy),
-                gap_before_days=gap_before_days,
-                gap_before_signal=gap_before_signal,
-                gap_after_days=gap_after_days,
-                gap_after_signal=gap_after_signal,
-                reservation_id=r.display_id,
+            _build_row(
+                r, "Confirmed", gap_before_days, gap_before_signal, gap_after_days, gap_after_signal,
+                property_name, market, nightly_adr, median_bw, target_percentile_attr,
             )
         )
+
+    cancelled = [
+        r for r in all_reservations if not r.is_confirmed and r.check_in and r.check_in >= START_DATE
+    ]
+    for r in cancelled:
+        rows.append(
+            _build_row(
+                r, "Cancelled", CANCELLED_GAP_NOTE, None, CANCELLED_GAP_NOTE, None,
+                property_name, market, nightly_adr, median_bw, target_percentile_attr,
+            )
+        )
+
     return rows

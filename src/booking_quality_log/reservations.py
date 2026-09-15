@@ -91,14 +91,17 @@ def _from_api_rows(rows: list[dict]) -> list[Reservation]:
     return out
 
 
-def fetch_confirmed_reservations(
+def fetch_reservations(
     client: PriceLabsClient,
     pms: str,
     listing_id: str,
     today: dt.date | None = None,
 ) -> list[Reservation]:
-    """Fetch this listing's confirmed (non-cancelled) reservations across a
-    window wide enough for gap/STLY/booking-window-median calculations.
+    """Fetch this listing's reservations (both confirmed and cancelled)
+    across a window wide enough for gap/STLY/booking-window-median
+    calculations. Callers filter by `.is_confirmed` as needed -- kept
+    unfiltered here so a cancelled booking can still show up as a row
+    (see compute.build_booking_rows) instead of silently vanishing.
     """
     today = today or dt.date.today()
     start = today - dt.timedelta(days=FETCH_BACK_DAYS)
@@ -111,7 +114,7 @@ def fetch_confirmed_reservations(
         end_date=end.isoformat(),
     )
     reservations = _from_api_rows(rows)
-    return [r for r in reservations if r.is_confirmed and r.check_in and r.check_out]
+    return [r for r in reservations if r.check_in and r.check_out]
 
 
 def nightly_adr_series(reservations: list[Reservation]) -> dict[dt.date, float]:

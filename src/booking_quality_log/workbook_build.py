@@ -49,6 +49,7 @@ FILL_TARGET_TIERS = [
 FILL_FLAG_NOTE = PatternFill(bgColor="FFFCEBC9")  # Midweek / 1-Night Stay
 FILL_UPSELL = PatternFill(bgColor="FFE4D9F2")  # Gap signal: Upsell candidate
 FILL_LOS_DISCOUNT = PatternFill(bgColor="FFD9E9F2")  # Gap signal: LOS-discount
+FILL_CANCELLED = PatternFill(bgColor="FFE7E6E6")  # Status = Cancelled (whole row grayed out)
 
 HEADERS = [
     "Property", "Check-in", "In Day", "Check-out", "Out Day", "Nights",
@@ -56,14 +57,14 @@ HEADERS = [
     "BW vs\nMedian", "My ADR", "My Revenue", "Source", "Target ADR\n(P75)",
     "vs Target\n($)", "vs Target\n(%)", "Market\nP25", "Market\nP90",
     "STLY ADR\n(same dates)", "Demand Tier\n(stay dates)", "Gap Before\n(d)",
-    "Gap Before Signal", "Gap After\n(d)", "Gap After Signal",
-    "Reservation ID", "Comp Check (Airbnb)", "LY Weekday Occ.",
+    "Gap Before Signal", "Gap After\n(d)", "Gap After Signal", "Status",
+    "Reservation ID", "Comp Check (Airbnb)", "LY occ.",
     "Pacing Push %", "LOS Discount", "Final PL Check", "Notes / Verdict",
 ]
-HIDDEN_COLUMNS = {"Z"}  # Reservation ID
+HIDDEN_COLUMNS = {"AA"}  # Reservation ID
 
 MANUAL_COLUMNS = [
-    "Comp Check (Airbnb)", "LY Weekday Occ.", "Pacing Push %",
+    "Comp Check (Airbnb)", "LY occ.", "Pacing Push %",
     "LOS Discount", "Final PL Check", "Notes / Verdict",
 ]
 
@@ -71,12 +72,16 @@ DATE_COLS = {2, 4}  # Check-in, Check-out
 MONEY_COLS = {12, 13, 15, 16, 18, 19}  # My ADR/Revenue, Target ADR, vs Target $, Market P25/P90
 HEADER_ROW = 4
 FIRST_DATA_ROW = 5
+STATUS_COL = 26  # Z
+RESERVATION_ID_COL = 27  # AA
+MANUAL_COLS_START = 28  # AB
+MANUAL_COLS_COUNT = 6
 
 COLUMN_WIDTHS = {
     "A": 22, "B": 10, "C": 6, "D": 10, "E": 6, "G": 13, "H": 7, "I": 10,
     "J": 8, "K": 9, "L": 8, "M": 9, "Q": 8, "T": 10, "V": 8, "W": 26,
-    "X": 8, "Y": 26, "Z": 14, "AA": 24, "AB": 20, "AC": 16, "AD": 20,
-    "AE": 18, "AF": 26,
+    "X": 8, "Y": 26, "Z": 12, "AA": 14, "AB": 24, "AC": 16, "AD": 16,
+    "AE": 20, "AF": 18, "AG": 26,
 }
 
 
@@ -111,9 +116,10 @@ def build_booking_quality_sheet(
         row=2,
         column=1,
         value=(
-            f"Showing check-ins from {display_start_date.isoformat()} onward. Both "
-            "properties set to Premium tier — target line is the 75th percentile of "
-            "the comp set, not the median. Raw signals only, no verdict. See 'Read Me' tab."
+            f"Showing check-ins from {display_start_date.isoformat()} onward, sorted by "
+            "Booked date (newest first). Both properties set to Premium tier — target line "
+            "is the 75th percentile of the comp set, not the median. Raw signals only, no "
+            "verdict. See 'Read Me' tab."
         ),
     )
 
@@ -150,12 +156,13 @@ def build_booking_quality_sheet(
         ws.cell(row=r, column=23, value=row.gap_before_signal)
         ws.cell(row=r, column=24, value=row.gap_after_days)
         ws.cell(row=r, column=25, value=row.gap_after_signal)
-        ws.cell(row=r, column=26, value=row.reservation_id)
+        ws.cell(row=r, column=STATUS_COL, value=row.status)
+        ws.cell(row=r, column=RESERVATION_ID_COL, value=row.reservation_id)
 
         saved = manual_notes.get(row.reservation_id)
         for offset in range(6):
             value = saved[offset] if saved else None
-            ws.cell(row=r, column=27 + offset, value=value)
+            ws.cell(row=r, column=MANUAL_COLS_START + offset, value=value)
 
         for col in MONEY_COLS:
             cell = ws.cell(row=r, column=col)
@@ -217,6 +224,18 @@ def build_booking_quality_sheet(
                     fill=FILL_LOS_DISCOUNT,
                 ),
             )
+
+        # Gray out the whole visible row when Status = Cancelled, added last
+        # (lowest priority) so it never hides a more specific signal color
+        # (e.g. a cancelled 1-Night booking still shows its tan highlight).
+        ws.conditional_formatting.add(
+            f"A{r0}:Y{last_row}",
+            FormulaRule(formula=[f'$Z{r0}="Cancelled"'], fill=FILL_CANCELLED),
+        )
+        ws.conditional_formatting.add(
+            col_range("Z"),
+            FormulaRule(formula=[f'Z{r0}="Cancelled"'], fill=FILL_CANCELLED),
+        )
 
 
 READ_ME_LINES = [
@@ -280,9 +299,21 @@ READ_ME_LINES = [
         False,
     ),
     ("", False),
+    ("Status", True),
+    (
+        "Confirmed or Cancelled. A booking that gets cancelled after you've already "
+        "reviewed it stays on the log (grayed out) instead of disappearing — so a note "
+        "you typed on it isn't lost, and a cancelled high- or low-ADR booking is still "
+        "there to learn from. Gap Before/After don't apply to a cancelled booking (it no "
+        "longer holds any calendar space), so those show 'n/a (cancelled)' instead of a "
+        "number. A cancellation by itself never triggers a new file being written — only "
+        "a brand-new confirmed booking does.",
+        False,
+    ),
+    ("", False),
     ("Manual note columns", True),
     (
-        "Comp Check (Airbnb), LY Weekday Occ., Pacing Push %, LOS Discount, Final PL "
+        "Comp Check (Airbnb), LY occ., Pacing Push %, LOS Discount, Final PL "
         "Check, and Notes/Verdict are blank on purpose — type your own findings in as "
         "you review, the same way you already do it by hand. They're matched to each "
         "row by a hidden Reservation ID column, so a refresh won't wipe out what you've "

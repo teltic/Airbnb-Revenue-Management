@@ -38,6 +38,7 @@ def _row(res_id, checkin=dt.date(2026, 9, 5)):
         gap_before_signal=None,
         gap_after_days=1,
         gap_after_signal="Upsell candidate (rarely fills alone)",
+        status="Confirmed",
         reservation_id=res_id,
     )
 
@@ -49,14 +50,17 @@ def test_sheet_structure_matches_prototype_layout():
 
     header_values = [c.value for c in ws[HEADER_ROW]]
     assert header_values == HEADERS
-    assert len(HEADERS) == 32  # A..AF
+    assert len(HEADERS) == 33  # A..AG
+    assert "Status" in HEADERS
+    assert "Reservation ID" in HEADERS
 
-    assert ws.column_dimensions["Z"].hidden is True
-    assert HIDDEN_COLUMNS == {"Z"}
+    assert ws.column_dimensions["AA"].hidden is True
+    assert HIDDEN_COLUMNS == {"AA"}
 
     data_row = ws[FIRST_DATA_ROW]
     assert data_row[0].value == "Test Property"
-    assert data_row[25].value == "AAA111"  # Z: Reservation ID
+    assert data_row[25].value == "Confirmed"  # Z: Status
+    assert data_row[26].value == "AAA111"  # AA: Reservation ID
 
 
 def test_manual_notes_carried_forward_by_reservation_id():
@@ -65,7 +69,7 @@ def test_manual_notes_carried_forward_by_reservation_id():
     build_booking_quality_sheet(wb, [_row("AAA111")], dt.date(2026, 9, 1), manual_notes=prior_notes)
     ws = wb[SHEET_NAME]
     row = ws[FIRST_DATA_ROW]
-    manual_values = [c.value for c in row[26:32]]
+    manual_values = [c.value for c in row[27:33]]
     assert manual_values == list(prior_notes["AAA111"])
 
 
@@ -74,8 +78,20 @@ def test_manual_notes_blank_for_a_row_with_no_prior_match():
     build_booking_quality_sheet(wb, [_row("NEWID")], dt.date(2026, 9, 1), manual_notes={"SOMEOTHERID": ("x",) * 6})
     ws = wb[SHEET_NAME]
     row = ws[FIRST_DATA_ROW]
-    manual_values = [c.value for c in row[26:32]]
+    manual_values = [c.value for c in row[27:33]]
     assert manual_values == [None] * 6
+
+
+def test_cancelled_row_is_grayed_out_and_shows_status():
+    wb = new_workbook()
+    row = _row("CANCELLED1")
+    row.status = "Cancelled"
+    row.gap_before_days = "n/a (cancelled)"
+    row.gap_after_days = "n/a (cancelled)"
+    build_booking_quality_sheet(wb, [row], dt.date(2026, 9, 1))
+    ws = wb[SHEET_NAME]
+    data_row = ws[FIRST_DATA_ROW]
+    assert data_row[25].value == "Cancelled"
 
 
 def test_read_me_sheet_created():

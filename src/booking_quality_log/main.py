@@ -9,10 +9,12 @@ Meant to run once a day (see run_daily_bql.bat / setup_daily_task_bql.bat).
 Safe to rerun same-day: it reads the most recent prior dated file in
 `--output-dir`, compares its Reservation IDs against today's confirmed
 bookings, and only writes a new file when there's at least one Reservation
-ID today that wasn't in that prior file. Six manual note columns (Comp
-Check, LY Weekday Occ., Pacing Push %, LOS Discount, Final PL Check, Notes
-/ Verdict) are carried forward from that same prior file, matched by
-Reservation ID, whenever a file is written.
+ID today that wasn't already known (whether previously shown as confirmed
+or cancelled). Six manual note columns (Comp Check, LY occ., Pacing Push
+%, LOS Discount, Final PL Check, Notes / Verdict) are carried forward from
+that same prior file, matched by Reservation ID, whenever a file is
+written -- including for a booking that's since been cancelled, which
+stays visible (marked Cancelled) rather than dropping out of the log.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ from daily_price_analysis.pricelabs_client import PriceLabsAPIError, PriceLabsCl
 
 from .compute import START_DATE, build_booking_rows
 from .dated_output import dated_filename, find_most_recent_prior_file
-from .reservations import fetch_confirmed_reservations
+from .reservations import fetch_reservations
 from .workbook_build import build_booking_quality_sheet, build_read_me_sheet, new_workbook
 from .workbook_state import load_prior_reservation_state
 
@@ -62,21 +64,28 @@ def run(
     all_rows = []
     for listing in listings:
         logger.info("Processing %s (%s / %s)", listing.name, listing.pms, listing.listing_id)
-        confirmed = fetch_confirmed_reservations(client, listing.pms, listing.listing_id, today)
+        reservations = fetch_reservations(client, listing.pms, listing.listing_id, today)
         raw_market = client.get_neighborhood_data(listing.listing_id, listing.pms)
         market, _compset = parse_market_data(raw_market)
-        all_rows.extend(build_booking_rows(listing.name, confirmed, market))
+        all_rows.extend(build_booking_rows(listing.name, reservations, market))
 
-    all_rows.sort(key=lambda r: (r.check_in, r.property_name))
+    # Newest-booked first (column "Booked" = the date the reservation was
+    # made, not check-in) -- rows with no booked_date sort to the bottom.
+    all_rows.sort(key=lambda r: (r.booked_date or dt.date.min, r.check_in), reverse=True)
 
-    today_ids = {row.reservation_id for row in all_rows}
-    new_ids = today_ids - set(prior_state.keys())
+    # Only a brand-new *confirmed* booking counts as "new" for the daily
+    # skip check -- a booking that was already known (whether it showed as
+    # Confirmed or Cancelled in the prior file) isn't new, and a
+    # cancellation by itself never triggers a write.
+    today_confirmed_ids = {row.reservation_id for row in all_rows if row.status == "Confirmed"}
+    new_ids = today_confirmed_ids - set(prior_state.keys())
 
     if prior_path is not None and not new_ids and not force:
         logger.info(
-            "No new confirmed bookings since %s (%d bookings in view, none new) -- skipping today.",
+            "No new confirmed bookings since %s (%d confirmed bookings in view, none new) "
+            "-- skipping today.",
             prior_path.name,
-            len(today_ids),
+            len(today_confirmed_ids),
         )
         return False
 
