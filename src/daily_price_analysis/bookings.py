@@ -5,13 +5,21 @@ Known gotcha (from the original hand-built version of this tool): a
 reservations API call with explicit date-range filters returned only ~18
 recent rows while the equivalent unfiltered CSV export from the PriceLabs
 web dashboard returned 340 rows going back to 2024. Re-tested live against
-this account's Customer API (reservation_data) on 2026-09-12 with an
-explicit ~2.5 year start_date/end_date window and it *did* return full
-history correctly, with pagination. That's encouraging, but it was tested
-through the MCP-proxied endpoint, not the directly-authenticated v1 API
-this script actually calls -- so `fetch_reservations_verified` below still
-runs a sanity check every time and refuses to silently proceed on
-suspiciously thin data, per the "fail loudly" requirement.
+the directly-authenticated v1 API on 2026-09-14/15 across two real
+listings: one returned full multi-year history correctly; the other
+("Sauna Cold Plunge 5BR") looked identically thin via both the API *and*
+a manually-exported CSV covering the same window -- meaning that listing
+is just young, not hitting the truncation bug.
+
+Given that, `fetch_reservations_verified` can't reliably tell "genuinely
+new listing" apart from "API silently truncated" using row count/date
+span alone. Since this script is meant to run unattended on a daily
+schedule, it no longer hard-stops on suspiciously thin data when no CSV
+fallback is configured -- it logs a clear warning and proceeds with
+whatever the API returned (LY/2LY ADR and This-Month aggregates for that
+property may just be incomplete, which is expected for a young listing).
+A `--bookings-csv` fallback is still fully supported and used automatically
+if you do have a fuller manual export to backfill with.
 """
 
 from __future__ import annotations
@@ -52,10 +60,6 @@ class Reservation:
     @property
     def is_booked(self) -> bool:
         return self.booking_status.strip().lower() not in CANCELLED_STATUSES
-
-
-class ReservationDataTruncatedError(RuntimeError):
-    pass
 
 
 def _parse_date(s: str) -> dt.date:
@@ -153,9 +157,9 @@ def fetch_reservations_verified(
 ) -> list[Reservation]:
     """Fetch reservation history via the API and verify it isn't truncated.
 
-    Raises ReservationDataTruncatedError (with no fallback configured) or
-    returns CSV-sourced reservations instead (if a fallback path is given
-    and the API result looks truncated).
+    Returns CSV-sourced reservations instead of the API result if a
+    fallback path is given and the API result looks truncated; otherwise
+    logs a warning and returns the (possibly incomplete) API result.
     """
     today = dt.date.today()
     start = today - dt.timedelta(days=365 * years_back)
@@ -199,15 +203,22 @@ def fetch_reservations_verified(
         )
         return load_reservations_csv(fallback_csv_path, listing_name=listing_name)
 
-    raise ReservationDataTruncatedError(
-        f"Reservation history for listing {listing_id} looks truncated: "
-        f"got {len(reservations)} rows, earliest check-in {earliest}, but "
-        f"requested back to {start}. This matches a known PriceLabs API bug "
-        f"where date-range filters silently return only recent bookings. "
-        f"Export the full history CSV from the PriceLabs dashboard "
-        f"(columns: {CSV_COLUMNS}) and pass its path as the bookings CSV "
-        f"fallback (see README) rather than trusting this partial result."
+    logger.warning(
+        "Reservation history for listing %s looks thin: got %d rows, "
+        "earliest check-in %s, requested back to %s, and no --bookings-csv "
+        "fallback was given. Proceeding with this partial history anyway "
+        "-- LY/2LY ADR and This-Month aggregates for this property may be "
+        "incomplete. This is expected for a genuinely new listing; if you "
+        "suspect this is the known PriceLabs truncation bug instead, export "
+        "the full history CSV from the PriceLabs dashboard (columns: %s) "
+        "and rerun with --bookings-csv to backfill it.",
+        listing_id,
+        len(reservations),
+        earliest,
+        start,
+        CSV_COLUMNS,
     )
+    return reservations
 
 
 def nightly_adr_series(reservations: list[Reservation]) -> dict[dt.date, float]:

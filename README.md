@@ -21,6 +21,20 @@ pulled from the API.
 
 ## Usage
 
+### One-click / daily automated (Windows)
+
+- **`run_daily.bat`** -- double-click to generate today's workbook. Writes
+  a dated snapshot (`Daily Low & High Price Analysis - YYYY-MM-DD.xlsx`)
+  into the folder set as `OUTPUT_DIR` at the top of that file, carrying
+  Notes and the Promo Tracker tabs forward from the most recent earlier
+  file in that same folder automatically.
+- **`setup_daily_task.bat`** -- run once to register a Windows Scheduled
+  Task that runs `run_daily.bat` automatically every day (default 6:00 AM
+  -- edit `RUN_TIME` at the top of the file, then rerun it, to change
+  that). Safe to rerun any time to update the schedule.
+
+### Manual / command line
+
 ```
 python run.py
 ```
@@ -29,31 +43,45 @@ python run.py
 box -- that form requires `src/` on your `PYTHONPATH`, which Python doesn't
 set up automatically.)
 
-Writes `output/Daily Low & High Price Analysis.xlsx` by default. Useful flags:
+Writes `output/Daily Low & High Price Analysis.xlsx` by default (always
+overwriting that one file). Useful flags:
 
-- `--output PATH` -- write somewhere else.
+- `--output-dir DIR` -- write a dated snapshot into DIR instead of
+  overwriting a single file, carrying Notes/Promo data forward from the
+  most recent earlier-dated file already in DIR (this is what
+  `run_daily.bat` uses). Overrides `--output`.
+- `--output PATH` -- write to (and read prior Notes/Promo from) one fixed
+  file instead.
 - `--days N` -- forward window length (default 365).
-- `--bookings-csv PATH` -- manual reservations-history CSV to fall back to
-  if the API's reservation pull looks truncated (see below). Expected
-  columns: Listing Name, Check-in Date, Check-out Date, Booked Date,
-  Average Daily Rate, Rental Revenue, Total Revenue, Currency, Booking
-  Source, Booking Status -- this is the format the PriceLabs dashboard's
-  CSV export uses. One CSV can cover your whole portfolio (a multi-listing
-  export) or just one property -- the script filters rows by the `name` in
-  `config/listings.yaml` matched against the CSV's Listing Name column
-  (whitespace/case-insensitive), so one property falling back never mixes
-  another property's bookings into its numbers. If a property's name
-  doesn't match anything in the CSV, the error message lists the exact
-  Listing Name values the CSV actually contains so you can fix the
-  mismatch.
+- `--bookings-csv PATH` -- manual reservations-history CSV to backfill
+  history with when a property's API reservation pull looks thin (see
+  below). Expected columns: Listing Name, Check-in Date, Check-out Date,
+  Booked Date, Average Daily Rate, Rental Revenue, Total Revenue,
+  Currency, Booking Source, Booking Status -- this is the format the
+  PriceLabs dashboard's CSV export uses. One CSV can cover your whole
+  portfolio (a multi-listing export) or just one property -- the script
+  filters rows by the `name` in `config/listings.yaml` matched against the
+  CSV's Listing Name column (whitespace/case-insensitive), so one property
+  falling back never mixes another property's bookings into its numbers.
+  If a property's name doesn't match anything in the CSV, the error
+  message lists the exact Listing Name values the CSV actually contains so
+  you can fix the mismatch.
 
-Rerunning is non-destructive: before regenerating, the script reads the
-existing output file (if present) and preserves the **Note Date / Note**
-columns on each property's main tab and the entire **Promo Tracker** tabs
-(those are hand-maintained, never pulled from an API). The **Active
-Overrides** tabs are always fully refreshed live -- if the API can't be
-reached for that, the run fails loudly instead of silently overwriting
-good override data with blanks.
+Rerunning is non-destructive: before regenerating, the script reads a
+prior output file (the same fixed file with `--output`, or the most recent
+dated file in the folder with `--output-dir`) and preserves the **Note
+Date / Note** columns on each property's main tab and the entire **Promo
+Tracker** tabs (those are hand-maintained, never pulled from an API). The
+**Active Overrides** tabs are always fully refreshed live -- if the API
+can't be reached for that, the run fails loudly instead of silently
+overwriting good override data with blanks.
+
+If a property's reservation history looks unusually thin and no
+`--bookings-csv` is given, the run does **not** stop (this matters for
+unattended daily automation) -- it logs a warning and proceeds with
+whatever history the API returned. LY/2LY ADR and This-Month aggregates
+for that property may just be incomplete, which is expected for a young
+listing.
 
 ## Known limitations / assumptions worth knowing before you trust this
 
@@ -74,18 +102,22 @@ good override data with blanks.
    be UI-only. `config/holidays.yaml` is a hand-maintained substitute;
    keep it updated alongside PriceLabs' own calendar.
 
-3. **Reservation-history truncation bug, re-tested but not fully cleared.**
+3. **Reservation-history truncation bug: confirmed not an issue on real
+   runs so far, but can't be told apart from a young listing in general.**
    The original prototype hit a bug where a reservations API call with
    explicit date filters silently returned only ~18 recent rows instead of
-   full history. Re-tested live against this account's reservation-data
-   endpoint (via the MCP-proxied path) with an explicit ~2.5-year window
-   and it returned full paginated history correctly. That's encouraging
-   but was tested through a different auth path than the one this script
-   actually uses -- `bookings.fetch_reservations_verified` still runs a
-   sanity check on every run (does the earliest returned booking reach
-   back far enough?) and refuses to proceed on suspiciously thin data,
-   falling back to a manual CSV export if `--bookings-csv` is given, or
-   failing loudly if not.
+   full history. Live testing across two real properties found one with
+   full multi-year history (fine) and one ("Sauna Cold Plunge 5BR") with
+   thin history via the API -- but a manually-exported CSV covering the
+   same window was equally thin, confirming that property is just young,
+   not hitting the bug. Since there's no reliable way to tell "young
+   listing" apart from "API truncated it" from row count/date span alone,
+   and this script needs to run unattended on a schedule,
+   `bookings.fetch_reservations_verified` no longer hard-stops on thin
+   data -- it logs a warning and proceeds (LY/2LY ADR and This-Month
+   aggregates for that property may be incomplete). A `--bookings-csv`
+   export is still used automatically to backfill history if you provide
+   one and the API result looks thin.
 
 4. **"This Month" Max/Floor pools every year of that calendar month.**
    e.g. a row in September 2026 is compared against *every* September in
@@ -117,18 +149,21 @@ good override data with blanks.
 ## Project layout
 
 ```
-config/listings.yaml       # properties to process (name, PMS, listing ID)
-config/holidays.yaml       # hand-maintained holiday/event tags
+run_daily.bat               # double-click to generate today's workbook
+setup_daily_task.bat        # run once to schedule run_daily.bat daily
+config/listings.yaml        # properties to process (name, PMS, listing ID)
+config/holidays.yaml        # hand-maintained holiday/event tags
 src/daily_price_analysis/
-  pricelabs_client.py       # REST API wrapper
-  calendar.py, market.py,   # response parsers
+  pricelabs_client.py        # REST API wrapper
+  calendar.py, market.py,    # response parsers
   overrides.py, bookings.py
-  promo.py                  # Promo Tracker date-range/price-range expansion
-  compute.py                # row-building + flag/threshold logic
+  promo.py                   # Promo Tracker date-range/price-range expansion
+  compute.py                 # row-building + flag/threshold logic
   workbook_build.py          # openpyxl workbook construction
   workbook_state.py          # read-back of Notes + Promo tabs for reruns
+  dated_output.py            # daily-snapshot filename/carry-forward logic
   main.py                    # CLI entrypoint
-tests/                      # unit tests for compute/promo/workbook_build (no network)
+tests/                       # unit tests (no network required)
 ```
 
 Run tests with `python -m pytest tests/`.
