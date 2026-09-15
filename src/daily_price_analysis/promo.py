@@ -15,8 +15,12 @@ from dataclasses import dataclass
 
 from .overrides import OverrideRow
 
-_RANGE_RE = re.compile(r"(\d{1,2})/(\d{1,2})\s*to\s*(\d{1,2})/(\d{1,2})", re.IGNORECASE)
-_DOLLAR_RANGE_RE = re.compile(r"\$?\s*([\d.]+)\s*-\s*\$?\s*([\d.]+)")
+_RANGE_RE = re.compile(r"(\d{1,2})/(\d{1,2})\s*(?:to|-)\s*(\d{1,2})/(\d{1,2})", re.IGNORECASE)
+# Real-world entries came in as slash-separated per-night lists
+# ("215/202/281" for a 3-night range), not just a "$210-$301" dash-range --
+# extracting every number found and averaging handles both, plus a single
+# plain number, uniformly.
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 # PriceLabs' Current Price and what Airbnb actually displays aren't the
 # same number -- Airbnb applies its own always-on discount plus PMS markup
@@ -71,17 +75,20 @@ def _expand_date_applied(date_applied, reference_year: int) -> list[dt.date]:
 
 
 def _average_price(price_entered) -> float | None:
+    """Averages every number found in `price_entered`, regardless of how
+    many there are or what separates them -- handles a plain number, a
+    "$210-$301" dash-range, and a "215/202/281" slash-separated per-night
+    list the same way. Don't try to reconstruct which number belongs to
+    which specific night; a flat average is the documented simplification
+    (see the "blended, not per-night" caveat).
+    """
     if isinstance(price_entered, (int, float)):
         return float(price_entered)
     if isinstance(price_entered, str):
-        match = _DOLLAR_RANGE_RE.search(price_entered)
-        if match:
-            lo, hi = (float(x) for x in match.groups())
-            return (lo + hi) / 2
-        try:
-            return float(price_entered.replace("$", "").strip())
-        except ValueError:
+        numbers = [float(n) for n in _NUMBER_RE.findall(price_entered)]
+        if not numbers:
             return None
+        return sum(numbers) / len(numbers)
     return None
 
 
@@ -102,9 +109,16 @@ def build_promo_lookup(promo_rows: list[PromoRow]) -> dict[dt.date, tuple[float 
 
 
 def compute_airbnb_adjusted_price(current_pricelabs_price: object) -> float | None:
-    if not isinstance(current_pricelabs_price, (int, float)):
+    """Current Pricelabs Price can itself be a compound per-night list for
+    a multi-night promo range (e.g. "215/202/281"), same as Price Entered
+    -- averaged via `_average_price` before applying the adjustment factor,
+    for the same reason (a flat blended figure, not a reconstructed
+    per-night one).
+    """
+    price = _average_price(current_pricelabs_price)
+    if price is None:
         return None
-    return round(current_pricelabs_price * AIRBNB_ADJUSTMENT_FACTOR, 2)
+    return round(price * AIRBNB_ADJUSTMENT_FACTOR, 2)
 
 
 def build_promo_output_rows(
