@@ -302,6 +302,14 @@ HOW_THIS_WORKS_LINES = [
     "-- config: promo.AIRBNB_ADJUSTMENT_FACTOR, still being validated against real "
     "numbers) so that comparison is apples-to-apples.",
     "",
+    "Promo Tracker entry formats accepted: Date Applied can be a single date, "
+    "'M/D to M/D', or 'M/D-M/D' (either separator works). Current Pricelabs Price and "
+    "Price Entered can be a single number, a '$lo-$hi' range, or a slash-separated list "
+    "like '215/202/281' for a multi-night range -- every number found gets averaged "
+    "into one flat figure (not reconstructed per-night; see caveat 1). Anything else "
+    "won't be recognized and that row's per-date lookup will silently come up blank on "
+    "the main tab, so double-check a new promo shows up there after entering it.",
+    "",
     "CAVEATS:",
     "1. Blended, not per-night. LY price and the promo-range price lookups all come "
     "from stay-level or range-level data, not true per-night rates -- a multi-night "
