@@ -1,9 +1,17 @@
 # Airbnb-Revenue-Management
 
-Generates the **Daily Low & High Price Analysis** workbook: a per-property
-Excel tool for catching mispriced dates, tracking manual Airbnb promotions,
-and mirroring active PriceLabs overrides. Pulls live data from PriceLabs'
-API on every run; safe to rerun repeatedly (e.g. weekly).
+Two automated tools, both pulling live data from PriceLabs' API and both
+safe to rerun repeatedly:
+
+- **Daily Low & High Price Analysis** -- a per-property Excel tool for
+  catching mispriced dates, tracking manual Airbnb promotions, and
+  mirroring active PriceLabs overrides.
+- **Booking Quality Log** -- one Excel log of every confirmed booking
+  (both properties combined), flagging upsell/discount-worthy calendar
+  gaps, below-target pricing, and other booking-quality signals. Only
+  writes a new file on a day at least one brand-new confirmed booking
+  shows up; otherwise that day is skipped, and a same-day rerun is safe
+  too. See "Booking Quality Log" below.
 
 ## Setup
 
@@ -146,16 +154,64 @@ listing.
    segments is (which may double-count a listing that appears in more than
    one segment).
 
+## Booking Quality Log
+
+One workbook, two tabs ("Read Me" + "Booking Quality Log"), covering both
+properties combined -- one row per confirmed booking with check-in on or
+after **2026-09-01** (a fixed cutoff, by explicit request -- not a rolling
+"today onward" window, so it won't silently start showing fewer rows as
+time passes; ask if you'd rather it rolled forward instead).
+
+Each row carries: nights/stay pattern/1-night flag, booking-window vs. that
+property's own median lead time, your ADR vs. the comp set's 75th-percentile
+target (both properties are Premium tier), market P25/P90 for context,
+same-date-last-year ADR where available, a demand tier from comp-set
+occupancy, and a Gap Before/After signal ("Upsell candidate" on a 1-night
+gap, "LOS-discount candidate" on a 2-night gap, each noting how often the
+comp set's occupancy suggests that gap fills on its own). Full plain-language
+descriptions are in the workbook's own "Read Me" tab.
+
+### Usage
+
+- **`run_daily_bql.bat`** -- double-click to check PriceLabs for brand-new
+  confirmed bookings and, if there are any, write today's dated workbook
+  (`Booking Quality Log - YYYY-MM-DD.xlsx`) into the folder set as
+  `OUTPUT_DIR` at the top of that file. If nothing new booked since the
+  last file it wrote (even if that was several days ago), it skips
+  writing anything and exits quietly -- that's expected, not a failure.
+- **`setup_daily_task_bql.bat`** -- run once to register a Windows
+  Scheduled Task that runs `run_daily_bql.bat` every day (default 7:00 AM
+  -- edit `RUN_TIME` at the top of the file, then rerun it, to change
+  that). Safe to rerun any time to update the schedule.
+- Manual / command line: `python run_bql.py [--output-dir DIR] [--force]`.
+  `--force` writes today's file even if nothing new booked (useful for
+  testing, or to pick up a change you made by hand to the pulled data).
+
+**What counts as "new":** only a brand-new confirmed booking appearing
+since the last file was written triggers a new file -- a cancellation or a
+guest's dates changing on an existing booking does not, by itself, trigger
+one (ask if you'd rather those also triggered a refresh).
+
+**Manual note columns never get erased.** Comp Check (Airbnb), LY Weekday
+Occ., Pacing Push %, LOS Discount, Final PL Check, and Notes/Verdict are
+hand-typed, never computed. A hidden **Reservation ID** column (PriceLabs'
+own channel confirmation code, e.g. an Airbnb code like `HMT5EBPQ54`) keys
+each row so that whenever a new file is written, any note you typed on a
+booking that's still in view is carried forward from the most recent prior
+file automatically.
+
 ## Project layout
 
 ```
-run_daily.bat               # double-click to generate today's workbook
+run_daily.bat               # double-click to generate today's Price Analysis workbook
 setup_daily_task.bat        # run once to schedule run_daily.bat daily
-config/listings.yaml        # properties to process (name, PMS, listing ID)
+run_daily_bql.bat           # double-click to check for new bookings / generate today's Booking Quality Log
+setup_daily_task_bql.bat    # run once to schedule run_daily_bql.bat daily
+config/listings.yaml        # properties to process (name, PMS, listing ID) -- shared by both tools
 config/holidays.yaml        # hand-maintained holiday/event tags
 src/daily_price_analysis/
-  pricelabs_client.py        # REST API wrapper
-  calendar.py, market.py,    # response parsers
+  pricelabs_client.py        # REST API wrapper -- shared by both tools
+  calendar.py, market.py,    # response parsers -- market.py shared by both tools
   overrides.py, bookings.py
   promo.py                   # Promo Tracker date-range/price-range expansion
   compute.py                 # row-building + flag/threshold logic
@@ -163,6 +219,13 @@ src/daily_price_analysis/
   workbook_state.py          # read-back of Notes + Promo tabs for reruns
   dated_output.py            # daily-snapshot filename/carry-forward logic
   main.py                    # CLI entrypoint
+src/booking_quality_log/
+  reservations.py            # confirmed-reservation fetch/parse (own copy: needs different fields/window than bookings.py above)
+  compute.py                 # gap/target-ADR/demand-tier/BW-median/STLY row-building logic
+  workbook_build.py          # openpyxl workbook construction (Read Me + Booking Quality Log tabs)
+  workbook_state.py          # read-back of Reservation IDs + manual notes for reruns and the skip check
+  dated_output.py            # daily-snapshot filename/most-recent-prior-file lookup
+  main.py                    # CLI entrypoint, including the new-booking skip check
 tests/                       # unit tests (no network required)
 ```
 

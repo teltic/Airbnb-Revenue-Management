@@ -1,0 +1,300 @@
+"""Build the "Booking Quality Log" workbook with openpyxl.
+
+Column order, widths, number formats and conditional-formatting colors are
+reproduced from the original hand-built prototype workbook so a rerun looks
+like the same tool, just automated.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+
+from openpyxl import Workbook
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.worksheet import Worksheet
+
+from .compute import BookingRow
+
+SHEET_NAME = "Booking Quality Log"
+
+FILL_HEADER = PatternFill("solid", fgColor="D9E1F2")
+BOLD = Font(bold=True)
+TITLE_FONT = Font(bold=True, size=14)
+
+# vs-Target 8-tier green (above target) / amber (below target) scale,
+# colors matched exactly to the original workbook's differential styles.
+FILL_TARGET_TIERS = [
+    PatternFill("solid", fgColor="1A7F4B"),  # >= +50%
+    PatternFill("solid", fgColor="3FAE6E"),  # +25% to +50%
+    PatternFill("solid", fgColor="8FD19E"),  # +10% to +25%
+    PatternFill("solid", fgColor="D6EFDA"),  # 0% to +10%
+    PatternFill("solid", fgColor="FCE0A6"),  # -10% to 0%
+    PatternFill("solid", fgColor="F7C97A"),  # -25% to -10%
+    PatternFill("solid", fgColor="F0AA4D"),  # -50% to -25%
+    PatternFill("solid", fgColor="E08A2B"),  # < -50%
+]
+FILL_FLAG_NOTE = PatternFill("solid", fgColor="FCEBC9")  # Midweek / 1-Night Stay
+FILL_UPSELL = PatternFill("solid", fgColor="E4D9F2")  # Gap signal: Upsell candidate
+FILL_LOS_DISCOUNT = PatternFill("solid", fgColor="D9E9F2")  # Gap signal: LOS-discount
+
+HEADERS = [
+    "Property", "Check-in", "In Day", "Check-out", "Out Day", "Nights",
+    "Stay Pattern", "1-Night\nStay", "Booked", "Booking\nWindow (d)",
+    "BW vs\nMedian", "My ADR", "My Revenue", "Source", "Target ADR\n(P75)",
+    "vs Target\n($)", "vs Target\n(%)", "Market\nP25", "Market\nP90",
+    "STLY ADR\n(same dates)", "Demand Tier\n(stay dates)", "Gap Before\n(d)",
+    "Gap Before Signal", "Gap After\n(d)", "Gap After Signal",
+    "Reservation ID", "Comp Check (Airbnb)", "LY Weekday Occ.",
+    "Pacing Push %", "LOS Discount", "Final PL Check", "Notes / Verdict",
+]
+HIDDEN_COLUMNS = {"Z"}  # Reservation ID
+
+MANUAL_COLUMNS = [
+    "Comp Check (Airbnb)", "LY Weekday Occ.", "Pacing Push %",
+    "LOS Discount", "Final PL Check", "Notes / Verdict",
+]
+
+DATE_COLS = {2, 4}  # Check-in, Check-out
+MONEY_COLS = {12, 13, 15, 16, 18, 19}  # My ADR/Revenue, Target ADR, vs Target $, Market P25/P90
+HEADER_ROW = 4
+FIRST_DATA_ROW = 5
+
+COLUMN_WIDTHS = {
+    "A": 22, "B": 10, "C": 6, "D": 10, "E": 6, "G": 13, "H": 7, "I": 10,
+    "J": 8, "K": 9, "L": 8, "M": 9, "Q": 8, "T": 10, "V": 8, "W": 26,
+    "X": 8, "Y": 26, "Z": 14, "AA": 24, "AB": 20, "AC": 16, "AD": 20,
+    "AE": 18, "AF": 26,
+}
+
+
+def _write_date(ws: Worksheet, row: int, col: int, value: dt.date | None) -> None:
+    if value is None:
+        return
+    ws.cell(row=row, column=col, value=dt.datetime.combine(value, dt.time()))
+    ws.cell(row=row, column=col).number_format = "dd-mmm-yy"
+
+
+def new_workbook() -> Workbook:
+    wb = Workbook()
+    del wb["Sheet"]
+    return wb
+
+
+def build_booking_quality_sheet(
+    wb: Workbook,
+    rows: list[BookingRow],
+    display_start_date: dt.date,
+    manual_notes: dict[str, tuple] | None = None,
+) -> None:
+    """`manual_notes` maps Reservation ID -> tuple of the 6 manual-column
+    values, carried forward from a prior run (see workbook_state.py).
+    """
+    manual_notes = manual_notes or {}
+    ws = wb.create_sheet(SHEET_NAME)
+
+    title_cell = ws.cell(row=1, column=1, value="Booking Quality Log — Mesquite Properties")
+    title_cell.font = TITLE_FONT
+    ws.cell(
+        row=2,
+        column=1,
+        value=(
+            f"Showing check-ins from {display_start_date.isoformat()} onward. Both "
+            "properties set to Premium tier — target line is the 75th percentile of "
+            "the comp set, not the median. Raw signals only, no verdict. See 'Read Me' tab."
+        ),
+    )
+
+    for col_idx, header in enumerate(HEADERS, start=1):
+        cell = ws.cell(row=HEADER_ROW, column=col_idx, value=header)
+        cell.font = BOLD
+        cell.fill = FILL_HEADER
+        cell.alignment = Alignment(wrap_text=True, vertical="bottom")
+    ws.freeze_panes = f"A{FIRST_DATA_ROW}"
+
+    for r, row in enumerate(rows, start=FIRST_DATA_ROW):
+        ws.cell(row=r, column=1, value=row.property_name)
+        _write_date(ws, r, 2, row.check_in)
+        ws.cell(row=r, column=3, value=row.check_in.strftime("%a"))
+        _write_date(ws, r, 4, row.check_out)
+        ws.cell(row=r, column=5, value=row.check_out.strftime("%a"))
+        ws.cell(row=r, column=6, value=row.nights)
+        ws.cell(row=r, column=7, value=row.stay_pattern)
+        ws.cell(row=r, column=8, value="Yes" if row.one_night_stay else None)
+        _write_date(ws, r, 9, row.booked_date)
+        ws.cell(row=r, column=10, value=row.booking_window_days)
+        ws.cell(row=r, column=11, value=row.bw_vs_median)
+        ws.cell(row=r, column=12, value=row.my_adr)
+        ws.cell(row=r, column=13, value=row.my_revenue)
+        ws.cell(row=r, column=14, value=row.source)
+        ws.cell(row=r, column=15, value=row.target_adr_p75)
+        ws.cell(row=r, column=16, value=row.vs_target_dollar)
+        ws.cell(row=r, column=17, value=row.vs_target_pct)
+        ws.cell(row=r, column=18, value=row.market_p25)
+        ws.cell(row=r, column=19, value=row.market_p90)
+        ws.cell(row=r, column=20, value=row.stly_adr)
+        ws.cell(row=r, column=21, value=row.demand_tier)
+        ws.cell(row=r, column=22, value=row.gap_before_days)
+        ws.cell(row=r, column=23, value=row.gap_before_signal)
+        ws.cell(row=r, column=24, value=row.gap_after_days)
+        ws.cell(row=r, column=25, value=row.gap_after_signal)
+        ws.cell(row=r, column=26, value=row.reservation_id)
+
+        saved = manual_notes.get(row.reservation_id)
+        for offset in range(6):
+            value = saved[offset] if saved else None
+            ws.cell(row=r, column=27 + offset, value=value)
+
+        for col in MONEY_COLS:
+            cell = ws.cell(row=r, column=col)
+            if cell.value not in (None, "", "n/a"):
+                cell.number_format = '$#,##0.00;("$"#,##0.00);\\-'
+        pct_cell = ws.cell(row=r, column=17)
+        if isinstance(pct_cell.value, (int, float)):
+            pct_cell.number_format = "0.0%"
+
+    last_row = len(rows) + FIRST_DATA_ROW - 1
+    for letter, width in COLUMN_WIDTHS.items():
+        ws.column_dimensions[letter].width = width
+    for letter in HIDDEN_COLUMNS:
+        ws.column_dimensions[letter].hidden = True
+
+    if last_row >= FIRST_DATA_ROW:
+        r0 = FIRST_DATA_ROW
+
+        def col_range(letter: str) -> str:
+            return f"{letter}{r0}:{letter}{last_row}"
+
+        # (lower-bound, upper-bound) on the vs-Target ratio for each of the
+        # 8 tiers, outermost first; None means "no bound on that side".
+        TIER_BOUNDS = [
+            (0.5, None), (0.25, 0.5), (0.1, 0.25), (0.0, 0.1),
+            (-0.1, 0.0), (-0.25, -0.1), (-0.5, -0.25), (None, -0.5),
+        ]
+        for (lo, hi), fill in zip(TIER_BOUNDS, FILL_TARGET_TIERS):
+            for col_letter, ratio_expr in (("P", f"(P{r0}/O{r0})"), ("Q", f"Q{r0}")):
+                is_number = f"ISNUMBER({'P' if col_letter == 'P' else 'Q'}{r0})"
+                conds = [is_number]
+                if lo is not None:
+                    conds.append(f"{ratio_expr}>={lo}")
+                if hi is not None:
+                    conds.append(f"{ratio_expr}<{hi}")
+                formula = f"AND({','.join(conds)})"
+                ws.conditional_formatting.add(
+                    col_range(col_letter), FormulaRule(formula=[formula], fill=fill)
+                )
+
+        ws.conditional_formatting.add(
+            col_range("H"), FormulaRule(formula=[f'H{FIRST_DATA_ROW}="Yes"'], fill=FILL_FLAG_NOTE)
+        )
+        ws.conditional_formatting.add(
+            col_range("G"), FormulaRule(formula=[f'G{FIRST_DATA_ROW}="Midweek"'], fill=FILL_FLAG_NOTE)
+        )
+        for col_letter in ("W", "Y"):
+            ws.conditional_formatting.add(
+                col_range(col_letter),
+                FormulaRule(
+                    formula=[f'ISNUMBER(SEARCH("Upsell",{col_letter}{FIRST_DATA_ROW}))'],
+                    fill=FILL_UPSELL,
+                ),
+            )
+            ws.conditional_formatting.add(
+                col_range(col_letter),
+                FormulaRule(
+                    formula=[f'ISNUMBER(SEARCH("LOS-discount",{col_letter}{FIRST_DATA_ROW}))'],
+                    fill=FILL_LOS_DISCOUNT,
+                ),
+            )
+
+
+READ_ME_LINES = [
+    ("How to read this log", True),
+    ("", False),
+    ("Target ADR (P75)", True),
+    (
+        "Both properties are set to Premium tier, so the benchmark is the comp set's "
+        "75th percentile price for the stay dates — not the median. 'vs Target' compares "
+        "your ADR to that line. Green = at/above target, in 4 tiers by how far above. "
+        "Amber = below target, in 4 tiers by how far below.",
+        False,
+    ),
+    ("", False),
+    ("Market P25 / P90", True),
+    ("Shown for extra context — how wide the comp set's pricing spread is on those dates.", False),
+    ("", False),
+    ("STLY ADR", True),
+    (
+        "Your own ADR from the same calendar dates last year, where a booking existed "
+        "then. Coverage is thin since it depends on you having had a booking on that "
+        "exact date last year — treat it as a bonus data point, not a column you'll "
+        "always have.",
+        False,
+    ),
+    ("", False),
+    ("Demand Tier", True),
+    (
+        "Comp-set market occupancy on the stay dates, bucketed Low (<30%), Mid (30-60%), "
+        "High (60%+). Use this alongside Booking Window: booked far out on a "
+        "High-demand date should carry a premium ADR; a lower ADR is more defensible "
+        "on Low-demand dates.",
+        False,
+    ),
+    ("", False),
+    ("BW vs Median", True),
+    (
+        "Compares this booking's lead time to that property's own median booking "
+        "window across all its bookings. 'Far out' = booked well ahead of typical; "
+        "'Last-minute' = booked well after typical.",
+        False,
+    ),
+    ("", False),
+    ("Stay Pattern", True),
+    (
+        "'Midweek' means no Friday or Saturday night is included in the stay — flagged "
+        "since these don't fit typical weekend demand. Use the ADR columns alongside it "
+        "to judge whether the price justified the pattern.",
+        False,
+    ),
+    ("", False),
+    ("1-Night Stay", True),
+    ("Flagged on its own regardless of price or surrounding gaps — your 'fall-out' booking case.", False),
+    ("", False),
+    ("Gap Before / After Signal", True),
+    (
+        "1-night gap = Upsell candidate (pitch an extra night to the adjacent guest). "
+        "2-night gap = LOS-discount candidate (loosen minimum-stay or discount to "
+        "attract a short booking). The fill-difficulty note in parentheses comes from "
+        "comp-set occupancy on those specific gap dates.",
+        False,
+    ),
+    ("", False),
+    ("Manual note columns", True),
+    (
+        "Comp Check (Airbnb), LY Weekday Occ., Pacing Push %, LOS Discount, Final PL "
+        "Check, and Notes/Verdict are blank on purpose — type your own findings in as "
+        "you review, the same way you already do it by hand. They're matched to each "
+        "row by a hidden Reservation ID column, so a refresh won't wipe out what you've "
+        "typed — it carries notes forward for any booking still in view.",
+        False,
+    ),
+    ("", False),
+    ("How this refreshes", True),
+    (
+        "Runs automatically once a day (Windows Task Scheduler). If there's at least "
+        "one brand-new confirmed booking since the last run, it writes a new dated "
+        "file and re-pulls bookings and comp-set data from PriceLabs, recomputing "
+        "every row and signal; if nothing new booked, today is skipped and no file is "
+        "written. See README.md for the schedule/setup.",
+        False,
+    ),
+]
+
+
+def build_read_me_sheet(wb: Workbook) -> None:
+    ws = wb.create_sheet("Read Me")
+    ws.column_dimensions["A"].width = 110
+    for r, (text, is_bold) in enumerate(READ_ME_LINES, start=1):
+        cell = ws.cell(row=r, column=1, value=text)
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        if is_bold:
+            cell.font = Font(bold=True, size=13 if r == 1 else 11)
