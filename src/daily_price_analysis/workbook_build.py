@@ -53,22 +53,20 @@ FILL_HEADER = PatternFill("solid", fgColor="FFD9E1F2")
 BOLD = Font(bold=True)
 
 MAIN_HEADERS = [
-    "Date", "Day", "Category", "Current Price", "LY ADR (blended)",
-    "2LY ADR (blended)", "Market Percentile", "LY Market Occ %",
+    "Date", "Day", "Category", "Current Price", "Market Percentile",
+    "Market Occupancy %", "LY Market Occ %", "In Booking Window?",
     "Price Override (PriceLabs)", "Override Reason", "Airbnb Promotion Price",
     "Discount %", "Note Date", "Note", "Holiday/Event", "Market 25th %ile",
     "Market 50th %ile", "Market 75th %ile", "Market 90th %ile",
-    "Weekday Max (All-Time)", "Weekday Max (This Month)",
-    "Weekday Typical Floor (P25, This Month)", "Weekend Max (All-Time)",
-    "Weekend Max (This Month)", "Weekend Typical Floor (P25, This Month)",
-    "+20% Threshold", "Booked?", "Flag",
+    "LY Price (blended)", "Booked?", "Flag Color", "Flag",
 ]
-HIDDEN_MAIN_COLUMNS = {"O", "P", "T", "V", "W", "Y", "Z", "AA"}
+HIDDEN_MAIN_COLUMNS = {"O", "P", "T", "U", "V"}
 
+# Column order here MUST match promo.build_promo_output_rows exactly.
 PROMO_HEADERS = [
     "Entered Date", "Date Applied", "Current Pricelabs Price",
-    "Airbnb Last Price", "Price Entered", "Discount %", "Notes",
-    "Price Override (PriceLabs)", "Override Reason",
+    "Current Price (Airbnb-adjusted)", "Airbnb Last Price", "Price Entered",
+    "Discount %", "Notes", "Price Override (PriceLabs)", "Override Reason",
 ]
 
 OVERRIDE_HEADERS = ["Date", "Price Override", "Min Price", "Max Price", "Min Stay", "Reason"]
@@ -94,18 +92,24 @@ def build_property_sheet(wb: Workbook, tab_name: str, rows: list[DateRow]) -> No
         ws.cell(row=r, column=2, value=row.day)
         ws.cell(row=r, column=3, value=row.category)
         ws.cell(row=r, column=4, value=row.current_price)
-        ws.cell(row=r, column=5, value=row.ly_adr)
-        ws.cell(row=r, column=6, value=row.ly2_adr)
+        # Market Percentile stays a live Excel formula (Current Price vs.
+        # the hidden/visible percentile columns to its right) so it keeps
+        # recalculating if Current Price is ever hand-edited -- unlike
+        # Flag (column W), which is now a plain computed value; see
+        # compute.py's module docstring for why Flag couldn't reasonably
+        # stay formula-driven once its logic grew branchy dynamic text.
         ws.cell(
             row=r,
-            column=7,
+            column=5,
             value=(
                 f'=IF(D{r}="","",IF(P{r}="","",IF(D{r}<P{r},"<25th",'
                 f'IF(D{r}<Q{r},"25th-50th",IF(D{r}<R{r},"50th-75th",'
                 f'IF(D{r}<S{r},"75th-90th",">90th"))))))'
             ),
         )
-        ws.cell(row=r, column=8, value=row.ly_market_occ)
+        ws.cell(row=r, column=6, value=row.market_occupancy_pct)
+        ws.cell(row=r, column=7, value=row.ly_market_occ)
+        ws.cell(row=r, column=8, value=row.in_booking_window)
         ws.cell(row=r, column=9, value=row.price_override)
         ws.cell(row=r, column=10, value=row.override_reason)
         ws.cell(row=r, column=11, value=row.airbnb_promo_price)
@@ -119,30 +123,10 @@ def build_property_sheet(wb: Workbook, tab_name: str, rows: list[DateRow]) -> No
         ws.cell(row=r, column=17, value=row.market_p50)
         ws.cell(row=r, column=18, value=row.market_p75)
         ws.cell(row=r, column=19, value=row.market_p90)
-        ws.cell(row=r, column=20, value=row.weekday_max_all_time)
-        ws.cell(row=r, column=21, value=row.weekday_max_this_month)
-        ws.cell(row=r, column=22, value=row.weekday_floor_this_month)
-        ws.cell(row=r, column=23, value=row.weekend_max_all_time)
-        ws.cell(row=r, column=24, value=row.weekend_max_this_month)
-        ws.cell(row=r, column=25, value=row.weekend_floor_this_month)
-        ws.cell(
-            row=r,
-            column=26,
-            value=(
-                f'=IFERROR(IF($C{r}="Weekday (Sun-Thu)",IF($U{r}<>"",$U{r},$T{r}),'
-                f'IF($C{r}="Weekend (Fri/Sat)",IF($X{r}<>"",$X{r},$W{r}),""))*1.2,"")'
-            ),
-        )
-        ws.cell(row=r, column=27, value=row.booked)
-        ws.cell(
-            row=r,
-            column=28,
-            value=(
-                f'=IF(AA{r}="Yes","",IF(AND(Z{r}<>"",D{r}>Z{r}),"ABOVE +20% CAP",'
-                f'IF($C{r}="Weekday (Sun-Thu)",IF(AND($V{r}<>"",D{r}<$V{r}),"BELOW TYPICAL",""),'
-                f'IF($C{r}="Weekend (Fri/Sat)",IF(AND($Y{r}<>"",D{r}<$Y{r}),"BELOW TYPICAL",""),""))))'
-            ),
-        )
+        ws.cell(row=r, column=20, value=row.ly_price)
+        ws.cell(row=r, column=21, value=row.booked)
+        ws.cell(row=r, column=22, value=row.flag_color)
+        ws.cell(row=r, column=23, value=row.flag)
 
     last_row = len(rows) + 1
     for col_letter in HIDDEN_MAIN_COLUMNS:
@@ -150,29 +134,38 @@ def build_property_sheet(wb: Workbook, tab_name: str, rows: list[DateRow]) -> No
     ws.column_dimensions["A"].width = 12
     ws.column_dimensions["J"].width = 30
     ws.column_dimensions["N"].width = 30
+    ws.column_dimensions["W"].width = 40
 
     if last_row >= 2:
         an_range = f"A2:N{last_row}"
-        ab_range = f"AB2:AB{last_row}"
+        flag_range = f"W2:W{last_row}"
+        # Booked ($U="Yes") takes priority over the flag colors below --
+        # both target ranges get all rules added in priority order, so a
+        # booked+flagged row always shows the dark booked fill, never a
+        # flag color underneath it.
         ws.conditional_formatting.add(
             an_range,
-            FormulaRule(formula=['$AA2="Yes"'], fill=FILL_BOOKED, font=FONT_BOOKED),
+            FormulaRule(formula=['$U2="Yes"'], fill=FILL_BOOKED, font=FONT_BOOKED),
         )
         ws.conditional_formatting.add(
-            ab_range,
-            FormulaRule(formula=['$AA2="Yes"'], fill=FILL_BOOKED, font=FONT_BOOKED),
+            flag_range,
+            FormulaRule(formula=['$U2="Yes"'], fill=FILL_BOOKED, font=FONT_BOOKED),
+        )
+        # Flag Color (hidden column V) drives the fill directly rather than
+        # pattern-matching the Flag text itself, since Flag now includes
+        # dynamic dollar amounts (LY MISMATCH) that a simple equality
+        # check in a CF formula can't match.
+        ws.conditional_formatting.add(
+            an_range, FormulaRule(formula=['$V2="green"'], fill=FILL_ABOVE_CAP)
         )
         ws.conditional_formatting.add(
-            an_range, FormulaRule(formula=['$AB2="ABOVE +20% CAP"'], fill=FILL_ABOVE_CAP)
+            flag_range, FormulaRule(formula=['$V2="green"'], fill=FILL_ABOVE_CAP)
         )
         ws.conditional_formatting.add(
-            ab_range, FormulaRule(formula=['$AB2="ABOVE +20% CAP"'], fill=FILL_ABOVE_CAP)
+            an_range, FormulaRule(formula=['$V2="salmon"'], fill=FILL_BELOW_TYPICAL)
         )
         ws.conditional_formatting.add(
-            an_range, FormulaRule(formula=['$AB2="BELOW TYPICAL"'], fill=FILL_BELOW_TYPICAL)
-        )
-        ws.conditional_formatting.add(
-            ab_range, FormulaRule(formula=['$AB2="BELOW TYPICAL"'], fill=FILL_BELOW_TYPICAL)
+            flag_range, FormulaRule(formula=['$V2="salmon"'], fill=FILL_BELOW_TYPICAL)
         )
         ws.conditional_formatting.add(
             f"A2:B{last_row}",
@@ -242,52 +235,92 @@ def build_compset_sheet(wb: Workbook, entries: list[tuple[str, CompsetInfo]]) ->
 HOW_THIS_WORKS_LINES = [
     "Daily Low & High Price Analysis -- How To Use",
     "",
-    "Visible columns, in order: Date, Day, Category, Current Price, LY ADR, 2LY ADR, "
-    "Market Percentile, LY Market Occ %, Price Override, Override Reason, Airbnb "
-    "Promotion Price, Discount %, Note Date, Note, [hidden columns], Flag (last column).",
+    "Visible columns, in order: Date, Day, Category, Current Price, Market Percentile, "
+    "Market Occupancy %, LY Market Occ %, In Booking Window?, Price Override, Override "
+    "Reason, Airbnb Promotion Price, Discount %, Note Date, Note, [hidden columns], "
+    "Flag (last column).",
     "",
-    "Workflow: filter Booked? = No, scan for orange/green highlights, check LY ADR / "
-    "2LY ADR and LY Market Occ % for context, log a note if you investigate.",
+    "Workflow: filter Booked? = No, scan for green/salmon highlights, check Market "
+    "Occupancy % and LY Market Occ % for context, log a note if you investigate.",
     "",
-    "Market Percentile shows where Current Price sits vs. the hidden market comp "
-    "columns (<25th, 25th-50th, 50th-75th, 75th-90th, >90th).",
+    "Market Percentile shows where Current Price sits vs. the market comp columns "
+    "(<25th, 25th-50th, 50th-75th, 75th-90th, >90th). Market Occupancy % is the "
+    "comp-set's current occupancy for that date -- the main demand signal driving Flag.",
     "",
-    "Flag: ABOVE +20% CAP (green) or BELOW TYPICAL (orange), computed off that row's "
-    "own category (weekday vs weekend; holidays are never flagged) against the hidden "
-    "Max/Typical-Floor columns for that category and calendar month.",
+    "FLAG LOGIC -- this is occupancy-driven, not history-driven. An earlier version of "
+    "this tool inferred 'typical' price from this property's own past booked prices; "
+    "that approach just launders forward whatever pricing mistakes already happened, "
+    "so it was replaced with a demand-based rule using actual market occupancy.",
+    "",
+    "Gate -- In Booking Window?: the Flag rule below only fires when Booked? = No AND "
+    "In Booking Window? = Yes. This exists because a date far in the future being "
+    "unbooked is normal, not a signal -- it only means something once we're close "
+    "enough to check-in that most bookings for that date-type would typically already "
+    "exist. 'Close enough' is this property's own median days-between-booking-and-"
+    "check-in (from its actual reservation history), or 45 days if there isn't enough "
+    "history yet to compute that (config: compute.DEFAULT_BOOKING_WINDOW_DAYS).",
+    "",
+    "Primary rule (occupancy tier), only when In Booking Window? = Yes:",
+    "  - Weekday and Market Occupancy % < 30% (weak demand) and Market Percentile is "
+    "above 25th -> ABOVE TARGET (weak weekday demand), salmon -- price is too high "
+    "for the demand level.",
+    "  - Weekend and Market Occupancy % < 40% (weak demand) and Market Percentile is "
+    "above 25th -> ABOVE TARGET (weak weekend demand), salmon.",
+    "  - Market Occupancy % >= 80% (either category, strong demand) and Market "
+    "Percentile is below 90th -> BELOW TARGET (strong demand, price too low), green "
+    "-- an opportunity to raise price.",
+    "  - Otherwise: no flag from this rule.",
+    "",
+    "Secondary rule (LY mismatch), checked only if the primary rule above didn't "
+    "already flag the row: if Current Price is more than 20% away from the same "
+    "calendar date last year's price (config: compute.LY_MISMATCH_THRESHOLD_PCT) -> "
+    "LY MISMATCH (was $X, now $Y). Green if price is now higher than last year, salmon "
+    "if lower. Runs regardless of the booking-window gate -- a price drift from last "
+    "year is worth surfacing even well before check-in. The LY figure comes from "
+    "stay-level reservation data, not a guaranteed true per-night rate for that exact "
+    "date (see caveat 1).",
+    "",
+    "Holiday/Event dates never get a Flag from either rule (unchanged reasoning: a "
+    "single tag lumps very different occasions together, e.g. New Year's Eve and an "
+    "ordinary pre-Christmas Tuesday, so a blended threshold would be misleading).",
     "",
     "Row coloring priority (first match wins): 1) Booked = Yes -> dark fill, done, no "
-    "review needed. 2) Flag = ABOVE +20% CAP -> green. 3) Flag = BELOW TYPICAL -> "
-    "salmon. 4) Separately, the Date/Day columns get a light-blue Friday/Saturday "
-    "marker whenever nothing above already colored those two cells.",
+    "review needed. 2) Flag color = green (see above). 3) Flag color = salmon. 4) "
+    "Separately, the Date/Day columns get a light-blue Friday/Saturday marker whenever "
+    "nothing above already colored those two cells.",
     "",
     "Price Override (PriceLabs) / Override Reason -- a same-date lookup against that "
     "property's own Overrides tab, refreshed live every run.",
     "",
     "Airbnb Promotion Price / Discount % -- a same-date lookup against that property's "
-    "Promo Tracker tab, which is hand-maintained and never overwritten by this script.",
+    "Promo Tracker tab, which is hand-maintained and never overwritten by this script. "
+    "That tab also has a 'Current Price (Airbnb-adjusted)' column: PriceLabs' Current "
+    "Price and what Airbnb actually shows guests aren't the same number (Airbnb applies "
+    "its own always-on discount plus PMS markup on top of the PriceLabs feed), so "
+    "comparing Airbnb Promotion Price against raw Current Price compares two different "
+    "reference points. The adjusted column applies a configurable factor (default 0.90 "
+    "-- config: promo.AIRBNB_ADJUSTMENT_FACTOR, still being validated against real "
+    "numbers) so that comparison is apples-to-apples.",
     "",
     "CAVEATS:",
-    "1. Blended ADR, not per-night. LY/2LY ADR and the promo-range price lookups all "
-    "come from stay-level or range-level data, not true per-night rates -- a "
-    "multi-night reservation's average rate is applied to every night in that stay.",
-    "2. Holiday/Event flagging is deliberately disabled. A single tag lumps very "
-    "different occasions together, so holiday-tagged dates get Market Percentile and "
-    "LY Market Occ % for context but no ABOVE/BELOW flag.",
-    "3. PriceLabs' API has no holiday/event field at all (checked the pricing, "
+    "1. Blended, not per-night. LY price and the promo-range price lookups all come "
+    "from stay-level or range-level data, not true per-night rates -- a multi-night "
+    "reservation's average rate is applied to every night in that stay.",
+    "2. PriceLabs' API has no holiday/event field at all (checked the pricing, "
     "market-data, and overrides endpoints) -- that tagging is UI-only in the PriceLabs "
     "dashboard, so this workbook sources it from config/holidays.yaml, maintained by "
     "hand alongside this script.",
-    "4. 'This Month' Max/Floor pools every date in that calendar month across ALL "
-    "years of history available (e.g. every September, not just this one) so there's "
-    "enough data to be meaningful; it only computes when a month has 3+ data points, "
-    "otherwise it's left blank rather than show a number built on noise.",
-    "5. Comp-set methodology can differ silently between properties -- always check "
-    "the Compset Overview tab before comparing percentile columns across properties.",
-    "6. Historical bookings data is fetched from PriceLabs' reservation API with a "
-    "sanity check for truncation (a known bug where date-filtered calls silently "
-    "returned only recent bookings); if that check trips and no manual CSV fallback "
-    "is configured, the script fails loudly rather than showing incomplete history.",
+    "3. Comp-set methodology can differ silently between properties -- always check "
+    "the Compset Overview tab before comparing percentile or occupancy columns across "
+    "properties.",
+    "4. Historical bookings data is fetched from PriceLabs' reservation API with a "
+    "sanity check for suspiciously thin history; if that check trips and no manual CSV "
+    "fallback is configured, the run proceeds with a logged warning rather than "
+    "stopping (LY price and the booking-window figure for that property may be "
+    "incomplete) -- this matters for unattended daily automation.",
+    "5. Flag is a plain computed value, not a live Excel formula, unlike Market "
+    "Percentile -- it won't recalculate if you hand-edit Current Price. Current Price "
+    "is pulled live from PriceLabs each run, so this shouldn't come up in normal use.",
 ]
 
 

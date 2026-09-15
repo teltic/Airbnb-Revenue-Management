@@ -15,26 +15,23 @@ from daily_price_analysis.workbook_build import (
 )
 
 
-def _sample_row(d: dt.date, booked: str, price: float) -> DateRow:
+def _sample_row(d: dt.date, booked: str, price: float, flag: str = "", flag_color: str = "") -> DateRow:
     return DateRow(
         date=d,
         day=d.strftime("%A"),
         category="Weekend (Fri/Sat)" if d.strftime("%A") in ("Friday", "Saturday") else "Weekday (Sun-Thu)",
         current_price=price,
-        ly_adr=None,
-        ly2_adr=None,
         ly_market_occ=71.4,
+        market_occupancy_pct=50.0,
+        in_booking_window="Yes",
         price_override="-10%",
         override_reason="test reason",
         airbnb_promo_price=None,
         discount_pct=None,
-        weekday_max_this_month=200.0,
-        weekday_max_all_time=250.0,
-        weekday_floor_this_month=90.0,
-        weekend_max_this_month=300.0,
-        weekend_max_all_time=350.0,
-        weekend_floor_this_month=150.0,
+        ly_price=200.0,
         booked=booked,
+        flag=flag,
+        flag_color=flag_color,
     )
 
 
@@ -42,27 +39,30 @@ def test_property_sheet_structure_matches_prototype():
     wb = new_workbook()
     rows = [
         _sample_row(dt.date(2026, 9, 11), "Yes", 650),  # Friday, booked
-        _sample_row(dt.date(2026, 9, 12), "No", 500),  # above-cap-ish
-        _sample_row(dt.date(2026, 9, 14), "No", 50),  # below typical
+        _sample_row(dt.date(2026, 9, 12), "No", 500, "ABOVE TARGET (weak weekend demand)", "salmon"),
+        _sample_row(dt.date(2026, 9, 14), "No", 50, "BELOW TARGET (strong demand, price too low)", "green"),
     ]
     build_property_sheet(wb, "Test Property", rows)
     ws = wb["Test Property"]
 
     header_values = [c.value for c in ws[1]]
     assert header_values == MAIN_HEADERS
-    assert len(MAIN_HEADERS) == 28  # A..AB
+    assert len(MAIN_HEADERS) == 23  # A..W
 
     for col_letter in HIDDEN_MAIN_COLUMNS:
         assert ws.column_dimensions[col_letter].hidden is True
-    for col_letter in ("Q", "R", "S", "U", "X"):
+    for col_letter in ("Q", "R", "S", "W"):
         assert ws.column_dimensions[col_letter].hidden is not True
 
-    assert ws["G2"].value.startswith("=IF(D2=")
-    assert ws["Z2"].value.startswith("=IFERROR(")
-    assert ws["AB2"].value.startswith('=IF(AA2="Yes"')
+    assert ws["E2"].value.startswith("=IF(D2=")  # Market Percentile stays a live formula
+    assert ws["F2"].value == 50.0  # Market Occupancy %
+    assert ws["H2"].value == "Yes"  # In Booking Window?
+    assert ws["V3"].value == "salmon"  # Flag Color (hidden)
+    assert ws["W3"].value == "ABOVE TARGET (weak weekend demand)"  # Flag (plain value, not a formula)
 
     rules_ranges = [str(r.sqref) for r in ws.conditional_formatting]
-    assert any("A2:N4" in r or "A2:N3" in r for r in rules_ranges) or len(list(ws.conditional_formatting)) > 0
+    assert any("A2:N" in r for r in rules_ranges)
+    assert any("W2:W" in r for r in rules_ranges)
 
 
 def test_full_workbook_tab_order():
