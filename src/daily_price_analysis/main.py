@@ -2,13 +2,23 @@
 (re)generate the "Daily Low & High Price Analysis" workbook.
 
 Usage:
-    python -m daily_price_analysis.main [--output PATH] [--days N]
-        [--bookings-csv PATH] [--listings-config PATH]
+    python -m daily_price_analysis.main [--output PATH | --output-dir DIR]
+        [--days N] [--bookings-csv PATH] [--listings-config PATH]
 
-Safe to rerun repeatedly (e.g. weekly): Notes and the Promo Tracker tabs are
-read back out of the existing output file before it's overwritten, then
-spliced into the freshly-generated data by exact date match. Active
-Overrides tabs are always fully refreshed from the API.
+Safe to rerun repeatedly (daily, weekly, whatever cadence you want): Notes
+and the Promo Tracker tabs are read back out of a prior output file before
+the new one is written, then spliced into the freshly-generated data by
+exact date match. Active Overrides tabs are always fully refreshed from
+the API.
+
+Two output modes:
+- `--output PATH` (default): always overwrite the same fixed file in
+  place, reading Notes/Promo back out of that same file first.
+- `--output-dir DIR`: write a new dated snapshot into DIR each run
+  ('Daily Low & High Price Analysis - YYYY-MM-DD.xlsx'), reading
+  Notes/Promo forward from the most recent earlier-dated file already in
+  DIR. Use this for a running daily/weekly archive instead of one file
+  that keeps getting overwritten.
 """
 
 from __future__ import annotations
@@ -20,13 +30,10 @@ import sys
 from pathlib import Path
 
 from . import config as cfg
-from .bookings import (
-    ReservationDataTruncatedError,
-    fetch_reservations_verified,
-    nightly_adr_series,
-)
+from .bookings import fetch_reservations_verified, nightly_adr_series
 from .compute import build_date_rows, compute_category_aggregates, ly_ly2_series
 from .calendar import parse_calendar
+from .dated_output import resolve_output_paths
 from .market import parse_market_data
 from .overrides import parse_overrides
 from .pricelabs_client import PriceLabsAPIError, PriceLabsClient
@@ -101,36 +108,44 @@ def run(
     days: int,
     bookings_csv: str | None,
     listings_config: Path | None,
+    output_dir: Path | None = None,
 ) -> None:
     listings = cfg.load_listings(listings_config)
     holidays = cfg.load_holidays()
     api_key = cfg.get_api_key()
     client = PriceLabsClient(api_key)
 
+    today = dt.date.today()
+    write_path, preserve_source_path = resolve_output_paths(output_dir, output_path, today)
+    if output_dir is not None:
+        if preserve_source_path is None:
+            logger.info("No prior dated workbook found in %s -- starting fresh.", output_dir)
+        else:
+            logger.info("Carrying forward Notes/Promo data from %s", preserve_source_path)
+
     wb = new_workbook()
     compset_entries = []
     per_listing_results = []
 
-    today = dt.date.today()
     display_dates = [today + dt.timedelta(days=i) for i in range(days)]
 
     for listing in listings:
         logger.info("Processing %s (%s / %s)", listing.name, listing.pms, listing.listing_id)
 
-        preserved_notes = load_preserved_notes(output_path, listing.tab_name)
-        preserved_promo_rows = load_promo_tab_rows(output_path, listing.promo_tab_name)
+        if preserve_source_path is not None:
+            preserved_notes = load_preserved_notes(preserve_source_path, listing.tab_name)
+            preserved_promo_rows = load_promo_tab_rows(preserve_source_path, listing.promo_tab_name)
+        else:
+            preserved_notes = {}
+            preserved_promo_rows = []
 
-        try:
-            reservations = fetch_reservations_verified(
-                client,
-                pms=listing.pms,
-                listing_id=listing.listing_id,
-                listing_name=listing.name,
-                fallback_csv_path=bookings_csv,
-            )
-        except ReservationDataTruncatedError as exc:
-            logger.error(str(exc))
-            raise SystemExit(1) from exc
+        reservations = fetch_reservations_verified(
+            client,
+            pms=listing.pms,
+            listing_id=listing.listing_id,
+            listing_name=listing.name,
+            fallback_csv_path=bookings_csv,
+        )
 
         nightly_adr = nightly_adr_series(reservations)
         aggregates = compute_category_aggregates(nightly_adr, holidays)
@@ -179,14 +194,23 @@ def run(
     build_compset_sheet(wb, compset_entries)
     build_how_this_works_sheet(wb)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(output_path)
-    logger.info("Saved %s", output_path)
+    write_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(write_path)
+    logger.info("Saved %s", write_path)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Write a dated snapshot ('Daily Low & High Price Analysis - "
+        "YYYY-MM-DD.xlsx') into this folder instead of overwriting a single "
+        "file. Each run carries Notes/Promo data forward from the most "
+        "recent earlier-dated file already in the folder. Overrides --output.",
+    )
     parser.add_argument("--days", type=int, default=365, help="Forward window length, in days.")
     parser.add_argument(
         "--bookings-csv",
@@ -199,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        run(args.output, args.days, args.bookings_csv, args.listings_config)
+        run(args.output, args.days, args.bookings_csv, args.listings_config, args.output_dir)
     except PriceLabsAPIError as exc:
         logger.error(str(exc))
         return 1
