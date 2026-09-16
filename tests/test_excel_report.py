@@ -18,19 +18,22 @@ from pacing_tracker.excel_report import (
 # not formulas we designed independently, so a match here means we've
 # reproduced their actual working logic, not just something equivalent.
 #
-# Two exceptions, both deliberate deviations decided 2026-09-13 (see the
-# module docstring in excel_report.py for the full reasoning): the Low-LY
-# cut's amount is now the editable $AA$31 instead of a hardcoded "-10%",
-# and Suggested Note gained a matching "LY below X%" case the reference
-# file's own formula never actually had.
+# Suggested Bump and Suggested Note have since deviated deliberately (see
+# the module docstring in excel_report.py for the full dated reasoning):
+# the Low-LY cut's amount is the editable $AA$31 instead of a hardcoded
+# "-10%" (2026-09-13); Suggested Note gained a matching "LY below X%" case
+# the reference file's own formula never had (2026-09-13); and Suggested
+# Bump's actionable branches now hold a real decimal fraction (e.g.
+# -$AA$31/100) instead of a "-10%" text string, so the cell can be pasted
+# directly into Override Request or read by push.py (2026-09-16).
 REFERENCE_SUGGESTED_BUMP_ROW2 = (
     '=IF(C2=100,"",IF(AND(F2<IF(OR(ISNUMBER(SEARCH("Fri",B2)),ISNUMBER(SEARCH("Sat",B2))),'
-    '$AA$24,$AA$23),G2<$AA$25),"-"&$AA$31&"%",IF(AND(F2>=$AA$28,IFERROR(T2>=$AA$29*U2,FALSE()),'
+    '$AA$24,$AA$23),G2<$AA$25),-$AA$31/100,IF(AND(F2>=$AA$28,IFERROR(T2>=$AA$29*U2,FALSE()),'
     'G2<-$AA$2,G2>=-$AA$30),"Hold - high LY, outside window",IF(AND(G2<-$AA$2,N2>1),'
-    '"⚠ Mixed – review",IF(G2<-$AA$2,"-"&IF(M2>2.5,20,IF(M2>1.5,10,5))&"%",'
+    '"⚠ Mixed – review",IF(G2<-$AA$2,-IF(M2>2.5,20,IF(M2>1.5,10,5))/100,'
     'IF(AND(N2>1,G2<=$AA$2,T2<=U2),"Hold - within booking window",'
-    'IF(OR(G2>$AA$2,N2>1),"+"&IF(MAX(M2,N2)>IF(F2>=$AA$26,$AA$27,2.5),20,'
-    'IF(MAX(M2,N2)>1.5,10,5))&"%",IF(OR(K2>$AA$6,L2>$AA$7),"+5% (watch)",""))))))))'
+    'IF(OR(G2>$AA$2,N2>1),IF(MAX(M2,N2)>IF(F2>=$AA$26,$AA$27,2.5),20,'
+    'IF(MAX(M2,N2)>1.5,10,5))/100,IF(OR(K2>$AA$6,L2>$AA$7),"+5% (watch)",""))))))))'
 )
 REFERENCE_SIGNAL_ROW2 = (
     '=IF(C2=100,"✓ Booked",TRIM(IF(G2>$AA$2,"▲ Ahead ","")&IF(G2<-$AA$2,"▼ Behind ","")&'
@@ -106,7 +109,8 @@ class LowLyCutTest(unittest.TestCase):
         self.assertIn(condition, _suggested_note_formula(2, "9/11"))
 
     def test_bump_references_the_editable_threshold_not_a_hardcoded_percent(self):
-        self.assertIn('"-"&$AA$31&"%"', _suggested_bump_formula(2))
+        self.assertIn("-$AA$31/100", _suggested_bump_formula(2))
+        self.assertNotIn('"-"&$AA$31&"%"', _suggested_bump_formula(2))
         self.assertNotIn('"-10%"', _suggested_bump_formula(2))
 
     def test_note_names_the_applicable_day_type_threshold(self):

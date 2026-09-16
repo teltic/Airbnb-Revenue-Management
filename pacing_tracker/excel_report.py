@@ -23,6 +23,17 @@ stays traceable (matches the spec's own "(decided 9/11/26)" convention):
   seen on the account, e.g. "8/23/26 - LY below 25%") -- the reference
   file's own Suggested Note formula never actually covered this case, so
   this also just closes a real gap, not only a retune.
+- 2026-09-16: Suggested Bump's actionable branches (the raise ladder, the
+  behind-pace cut ladder, and the Low-LY cut) now hold a real decimal
+  fraction (e.g. 0.2, -0.1) instead of a "+20%"/"-10%" text string,
+  displayed identically via SUGGESTED_BUMP_FORMAT's custom number format.
+  The reference file's text-string version can't be pasted into Override
+  Request (which expects that same decimal-fraction convention) or read
+  by push.py's float(...) parsing -- both would choke on a literal "%"
+  character. The advisory-only branches ("Hold - ...", "⚠ Mixed –
+  review", "+5% (watch)") are still text, unaffected. The O:P conditional
+  formatting that colors a raise/cut green/salmon switched from a
+  leading-character text check to a sign check on the number accordingly.
 """
 
 import argparse
@@ -62,6 +73,13 @@ LAST_DATA_COL = "X"
 
 PCT_FORMAT = "0.00\\%"
 DATE_FORMAT = "yyyy\\-mm\\-dd"
+# Suggested Bump holds a real decimal fraction (0.2, -0.1, ...) for its
+# actionable branches, displayed as "+20%"/"-10%" via this custom format --
+# but the "Hold - ...", "Mixed", and "+5% (watch)" branches are plain text,
+# which the "@" section passes through unchanged. Storing a real number
+# (not a "+20%" string) means this cell can be copy-pasted directly into
+# Override Request, which expects that same decimal-fraction convention.
+SUGGESTED_BUMP_FORMAT = "+0%;-0%;0%;@"
 
 HEADER_FILL = PatternFill("solid", fgColor="2F5597")
 HEADER_FONT = Font(name="Arial", size=11, bold=True, color="FFFFFFFF")
@@ -131,17 +149,17 @@ def _suggested_bump_formula(r):
     occ = f"{COL['occupancy']}{r}"
     level8 = f'IF(OR({k}>$AA$6,{l}>$AA$7),"+5% (watch)","")'
     level7 = (
-        f'IF(OR({g}>$AA$2,{n}>1),"+"&IF(MAX({m},{n})>IF({f}>=$AA$26,$AA$27,2.5),20,'
-        f'IF(MAX({m},{n})>1.5,10,5))&"%",{level8})'
+        f'IF(OR({g}>$AA$2,{n}>1),IF(MAX({m},{n})>IF({f}>=$AA$26,$AA$27,2.5),20,'
+        f'IF(MAX({m},{n})>1.5,10,5))/100,{level8})'
     )
     level6 = f'IF(AND({n}>1,{g}<=$AA$2,{t}<={u}),"Hold - within booking window",{level7})'
-    level5 = f'IF({g}<-$AA$2,"-"&IF({m}>2.5,20,IF({m}>1.5,10,5))&"%",{level6})'
+    level5 = f'IF({g}<-$AA$2,-IF({m}>2.5,20,IF({m}>1.5,10,5))/100,{level6})'
     level4 = f'IF(AND({g}<-$AA$2,{n}>1),"⚠ Mixed – review",{level5})'
     level3 = (
         f'IF(AND({f}>=$AA$28,IFERROR({t}>=$AA$29*{u},FALSE()),{g}<-$AA$2,{g}>=-$AA$30),'
         f'"Hold - high LY, outside window",{level4})'
     )
-    level2 = f'IF({_low_ly_condition(r)},"-"&$AA$31&"%",{level3})'
+    level2 = f'IF({_low_ly_condition(r)},-$AA$31/100,{level3})'
     return f'=IF({occ}=100,"",{level2})'
 
 
@@ -236,6 +254,7 @@ def _write_data_rows(ws, records, pull_date, previous_state):
             f"{COL['pickup_14d']}{r}/$AA$5),0)"
         )
         ws[f"{COL['suggested_bump']}{r}"] = _suggested_bump_formula(r)
+        ws[f"{COL['suggested_bump']}{r}"].number_format = SUGGESTED_BUMP_FORMAT
         ws[f"{COL['signal']}{r}"] = _signal_formula(r)
         ws[f"{COL['override_request']}{r}"] = prev.get("override_request")
         ws[f"{COL['notes']}{r}"] = prev.get("notes")
@@ -320,8 +339,14 @@ def _apply_conditional_formatting(ws, last_row):
 
     op_range = f"O2:P{last_row}"
     ws.conditional_formatting.add(op_range, FormulaRule(formula=['ISNUMBER(SEARCH("Mixed",O2))'], fill=fmt("light_grey")))
-    ws.conditional_formatting.add(op_range, FormulaRule(formula=['LEFT(O2,1)="+"'], fill=fmt("light_green")))
-    ws.conditional_formatting.add(op_range, FormulaRule(formula=['LEFT(O2,1)="-"'], fill=fmt("salmon")))
+    # O2 now holds a real number (not "+20%" text) for its actionable
+    # branches -- see SUGGESTED_BUMP_FORMAT -- so these key off the sign of
+    # the number rather than a leading "+"/"-" character. "+5% (watch)" and
+    # the "Hold - ..." branches are still text (ISNUMBER is FALSE for them),
+    # so this also has the effect of leaving those advisory-only outputs
+    # uncolored here, visually setting them apart from a firm suggestion.
+    ws.conditional_formatting.add(op_range, FormulaRule(formula=["AND(ISNUMBER(O2),O2>0)"], fill=fmt("light_green")))
+    ws.conditional_formatting.add(op_range, FormulaRule(formula=["AND(ISNUMBER(O2),O2<0)"], fill=fmt("salmon")))
 
     ws.conditional_formatting.add(f"U2:U{last_row}", FormulaRule(formula=["AND(T2>=0,T2<=U2)"], fill=fmt("med_blue")))
     ws.conditional_formatting.add(f"W2:W{last_row}", FormulaRule(formula=["LEN(W2)>0"], fill=fmt("light_gold")))
