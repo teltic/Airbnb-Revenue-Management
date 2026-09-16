@@ -275,9 +275,20 @@ it works regardless of where the repo is cloned. Push is deliberately
 reviewed action ("one batch, not one date at a time"), not something to
 run unattended.
 
-To schedule it: Task Scheduler → Create Basic Task → daily trigger at
-your preferred time → action "Start a program" → browse to
-`run_daily.bat` in this repo's folder. In the task's Properties afterward,
-under Settings, check "Run task as soon as possible after a scheduled
-start is missed" so a sleeping/off PC at the scheduled time doesn't just
-skip that day.
+To schedule it, either:
+
+- **`setup_daily_task.bat`** (recommended) — double-click it to register
+  the task via `schtasks` instead of clicking through the wizard. Also
+  resolves its own folder, so it always points the task at wherever this
+  repo actually lives; safe to re-run any time (e.g. after moving/renaming
+  the folder) since it overwrites the existing task rather than erroring
+  on a duplicate name. Edit `RUN_TIME` at the top of the file to change
+  when it fires (defaults to 6:00 AM).
+- **Manually**: Task Scheduler → Create Basic Task → daily trigger at
+  your preferred time → action "Start a program" → browse to
+  `run_daily.bat` in this repo's folder.
+
+Either way, one setting `schtasks` can't configure for you: open the
+task in Task Scheduler once, Properties → Settings tab, and check "Run
+task as soon as possible after a scheduled start is missed" so a
+sleeping/off PC at the scheduled time doesn't just skip that day.
