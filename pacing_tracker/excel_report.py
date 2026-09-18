@@ -34,6 +34,19 @@ stays traceable (matches the spec's own "(decided 9/11/26)" convention):
   review", "+5% (watch)") are still text, unaffected. The O:P conditional
   formatting that colors a raise/cut green/salmon switched from a
   leading-character text check to a sign check on the number accordingly.
+- 2026-09-18: Suggested Bump's display switched from a "+20%"/"-10%"-style
+  percent format to a plain decimal ("0.20"/"-0.10") -- copy-pasting the
+  percent-styled display elsewhere (e.g. into Override Request) carried
+  the visual "%" formatting along in a way that read wrong once pasted.
+  Pickup 14/30/60d and the Pace/Pickup x Threshold ratio columns (J:N) are
+  now grouped and collapsed by default (still there, one click away) since
+  they're detail that already feeds Signal/Suggested Bump rather than
+  something reviewed directly. Freeze panes moved from A2 to J2 to match
+  how the sheet is actually scrolled day to day. Added a "Review Bucket"
+  column (Y) that mirrors the user's own daily review order (steps 1-6 of
+  config.DAILY_REVIEW_STEPS) as one filterable label, and a "Daily Review
+  Steps" tab documenting that routine in full (including step 7, which
+  isn't computed here since it needs a look across neighboring dates).
 """
 
 import argparse
@@ -51,6 +64,7 @@ from .carryforward import load_previous_state_for_folder
 
 SHEET_NAME = "Daily Pacing"
 BOOKING_WINDOW_SHEET_NAME = "Booking Window"
+DAILY_REVIEW_STEPS_SHEET_NAME = "Daily Review Steps"
 
 HEADERS = [
     "Date", "Weekday", "Occupancy %", "Mkt Occ %", "Mkt Occ % STLY", "Mkt Occ % LY",
@@ -58,6 +72,7 @@ HEADERS = [
     "Pace (x Threshold)", "Pickup (x Threshold)", "Suggested Bump", "Signal",
     "Override Request", "Notes", "Suggested Note", "Days Out",
     "Median Booking Window (mo)", "Events", "Override Status", "New Since Last Review",
+    "Review Bucket",
 ]
 # 1-based column letters for the fields above, by name -- avoids magic
 # column letters scattered through the formula-building code below.
@@ -68,18 +83,19 @@ COL = {
     "pickup_ratio": "N", "suggested_bump": "O", "signal": "P", "override_request": "Q",
     "notes": "R", "suggested_note": "S", "days_out": "T", "median_booking_window": "U",
     "events": "V", "override_status": "W", "new_since_last_review": "X",
+    "review_bucket": "Y",
 }
-LAST_DATA_COL = "X"
+LAST_DATA_COL = "Y"
 
 PCT_FORMAT = "0.00\\%"
 DATE_FORMAT = "yyyy\\-mm\\-dd"
 # Suggested Bump holds a real decimal fraction (0.2, -0.1, ...) for its
-# actionable branches, displayed as "+20%"/"-10%" via this custom format --
-# but the "Hold - ...", "Mixed", and "+5% (watch)" branches are plain text,
-# which the "@" section passes through unchanged. Storing a real number
-# (not a "+20%" string) means this cell can be copy-pasted directly into
-# Override Request, which expects that same decimal-fraction convention.
-SUGGESTED_BUMP_FORMAT = "+0%;-0%;0%;@"
+# actionable branches, displayed as the same plain decimal (e.g. "0.20",
+# "-0.10") -- not as a percent string -- so it reads identically to what
+# Override Request expects and can be copied straight across without any
+# reformatting. The "Hold - ...", "Mixed", and "+5% (watch)" branches are
+# plain text, which the "@" section passes through unchanged.
+SUGGESTED_BUMP_FORMAT = "0.00;-0.00;0.00;@"
 
 HEADER_FILL = PatternFill("solid", fgColor="2F5597")
 HEADER_FONT = Font(name="Arial", size=11, bold=True, color="FFFFFFFF")
@@ -219,6 +235,33 @@ def _new_since_last_review_formula(r, previous_signal):
     )
 
 
+def _review_bucket_formula(r):
+    """Single filterable label per row, mirroring the user's own daily
+    review order (see config.DAILY_REVIEW_STEPS / the "Daily Review Steps"
+    tab) so filtering this one column replaces running through steps 1-6
+    one at a time. Step 7 (multiple nearby low-occupancy dates) needs a
+    look across neighboring rows and isn't computed here.
+    """
+    x, w = f"{COL['new_since_last_review']}{r}", f"{COL['override_status']}{r}"
+    f, weekday = f"{COL['mkt_occ_ly']}{r}", f"{COL['weekday']}{r}"
+    m, n = f"{COL['pace_ratio']}{r}", f"{COL['pickup_ratio']}{r}"
+    t, u = f"{COL['days_out']}{r}", f"{COL['median_booking_window']}{r}"
+    weekend = _weekend_fragment(weekday)
+    low_ly = f"{f}<IF({weekend},$AA$24,$AA$23)"
+    high_ly = f"{f}>=$AA$26"
+    return (
+        f'=IF({x}="NEW","1. New",'
+        f'IF({w}="Review - pace normalized","2. Override Normalized",'
+        f'IF({low_ly},"3. Low LY",'
+        f'IF({high_ly},"3. High LY",'
+        f'IF({m}>2,"4. Pace >10%",'
+        f'IF({m}>1,"4. Pace 5-10%",'
+        f'IF({n}>1,"5. Pickup Spike",'
+        f'IF(AND({t}>=0,{t}<={u}),"6. Within Window",'
+        '""))))))))'
+    )
+
+
 def _write_header(ws):
     ws.append(HEADERS)
     ws.row_dimensions[1].height = 39
@@ -265,6 +308,7 @@ def _write_data_rows(ws, records, pull_date, previous_state):
         ws[f"{COL['events']}{r}"] = record.get("events")
         ws[f"{COL['override_status']}{r}"] = _override_status_formula(r)
         ws[f"{COL['new_since_last_review']}{r}"] = _new_since_last_review_formula(r, prev.get("signal"))
+        ws[f"{COL['review_bucket']}{r}"] = _review_bucket_formula(r)
 
         for col_name in ("occupancy", "mkt_occ", "mkt_occ_stly", "mkt_occ_ly", "pace_vs_stly",
                          "pickup_3d", "pickup_7d", "pickup_14d", "pickup_30d", "pickup_60d"):
@@ -291,6 +335,17 @@ def _write_booking_window_sheet(wb):
     month_abbrev = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     for month_num in range(1, 13):
         ws.append([month_num, month_abbrev[month_num - 1], config.MEDIAN_BOOKING_WINDOW_BY_MONTH[month_num]])
+    return ws
+
+
+def _write_daily_review_steps_sheet(wb):
+    ws = wb.create_sheet(DAILY_REVIEW_STEPS_SHEET_NAME)
+    ws["A1"] = "Daily review routine (edit config.DAILY_REVIEW_STEPS to change this list)"
+    ws["A1"].font = Font(name="Arial", size=11, bold=True)
+    ws.column_dimensions["A"].width = 100
+    for i, step in enumerate(config.DAILY_REVIEW_STEPS):
+        ws[f"A{i + 2}"] = step
+        ws[f"A{i + 2}"].alignment = Alignment(wrap_text=True, vertical="top")
     return ws
 
 
@@ -351,6 +406,7 @@ def _apply_conditional_formatting(ws, last_row):
     ws.conditional_formatting.add(f"U2:U{last_row}", FormulaRule(formula=["AND(T2>=0,T2<=U2)"], fill=fmt("med_blue")))
     ws.conditional_formatting.add(f"W2:W{last_row}", FormulaRule(formula=["LEN(W2)>0"], fill=fmt("light_gold")))
     ws.conditional_formatting.add(f"X2:X{last_row}", FormulaRule(formula=["LEN(X2)>0"], fill=fmt("light_green")))
+    ws.conditional_formatting.add(f"Y2:Y{last_row}", FormulaRule(formula=["LEN(Y2)>0"], fill=fmt("pale_yellow")))
 
     for col, threshold_cell in (("H", "$AA$3"), ("I", "$AA$4"), ("J", "$AA$5"), ("K", "$AA$6"), ("L", "$AA$7")):
         col_range = f"{col}2:{col}{last_row}"
@@ -368,17 +424,16 @@ def _set_column_widths(ws):
     widths = {
         "A": 11, "B": 8, "C": 9, "E": 11, "F": 9, "G": 10, "H": 9, "J": 9,
         "M": 12, "N": 13, "O": 15, "P": 18, "Q": 20, "R": 34, "S": 24,
-        "T": 8, "U": 15, "V": 16, "W": 22, "X": 12,
+        "T": 8, "U": 15, "V": 16, "W": 22, "X": 12, "Y": 20,
     }
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
-    # M/N (Pace/Pickup x Threshold) are intermediate ratios that feed the
-    # Suggested Bump and Signal formulas -- not meant to be read directly.
-    # Hidden rather than deleted so they're still there to unhide if you
-    # ever want to sanity-check a formula result.
-    ws.column_dimensions["M"].hidden = True
-    ws.column_dimensions["N"].hidden = True
+    # Pickup 14/30/60d and the Pace/Pickup x Threshold ratios (J:N) are
+    # detail that already feeds Signal/Suggested Bump -- grouped and
+    # collapsed (not deleted) so they're one click on the outline bar away
+    # instead of gone.
+    ws.column_dimensions.group("J", "N", hidden=True)
 
 
 def build_workbook(records, pull_date, previous_state):
@@ -399,6 +454,7 @@ def build_workbook(records, pull_date, previous_state):
     _apply_conditional_formatting(ws, last_row)
 
     _write_booking_window_sheet(wb)
+    _write_daily_review_steps_sheet(wb)
     return wb
 
 

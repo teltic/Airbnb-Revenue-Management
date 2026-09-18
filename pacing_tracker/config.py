@@ -105,6 +105,28 @@ MEDIAN_BOOKING_WINDOW_BY_MONTH = {
 
 WEEKEND_DAYS = {"Fri", "Sat"}  # per spec: weekend = Fri-Sat, weekday = Sun-Thu
 
+# --- Daily review routine ----------------------------------------------------
+# The user's own step-by-step process for working through the sheet each day.
+# Written to a "Daily Review Steps" tab as plain reference text -- edit this
+# list (ask Claude to update it) as the routine changes; it's overwritten by
+# every regenerated workbook, so changes belong here, not typed into the tab.
+# Steps 1-6 are also implemented as the "Review Bucket" column (Y) on Daily
+# Pacing, so filtering that one column replaces running through them by hand.
+DAILY_REVIEW_STEPS = [
+    "1. Filter 'New Since Last Review' (X) for NEW.",
+    "2. Filter 'Override Status' (W) for 'Review - pace normalized'.",
+    "3. Filter 'Mkt Occ % LY' (F) -- review Low LY and High LY dates together, "
+    "treating each group consistently.",
+    "4. Filter 'Pace vs STLY' (G) by size: over 10%, then 5-10%, then under 5% "
+    "-- treat similarly-sized moves the same way.",
+    "5. Filter Pickup 3d/7d/14d (H:J) for a spike -- catches dates that may "
+    "need a temporary bump.",
+    "6. Filter 'Median Booking Window' (U, highlighted blue) for dates within "
+    "the booking window -- normalize/remove price-ups as a date moves inside it.",
+    "7. Flag dates with multiple nearby low-occupancy dates for a possible LOS "
+    "discount (tracked separately, not on this sheet).",
+]
+
 # --- Excel output -----------------------------------------------------------
 # Point this at a folder on disk that the Google Drive desktop app syncs --
 # the script just reads/writes plain files there; Drive handles the sync.

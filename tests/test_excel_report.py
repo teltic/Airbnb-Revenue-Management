@@ -3,10 +3,12 @@ from datetime import date
 
 from pacing_tracker import config
 from pacing_tracker.excel_report import (
+    SUGGESTED_BUMP_FORMAT,
     _days_out_formula,
     _median_booking_window_formula,
     _new_since_last_review_formula,
     _override_status_formula,
+    _review_bucket_formula,
     _signal_formula,
     _suggested_bump_formula,
     _suggested_note_formula,
@@ -59,6 +61,17 @@ REFERENCE_NEW_SINCE_LAST_REVIEW_ROW2 = (
     'AND(ISNUMBER(SEARCH("Spike",P2)),NOT(ISNUMBER(SEARCH("Spike","▼ Behind ⚡ Spike")))),'
     'AND(ISNUMBER(SEARCH("Elevated",P2)),NOT(ISNUMBER(SEARCH("Elevated","▼ Behind ⚡ Spike"))))),"NEW","")'
 )
+# Review Bucket (Y) is new, not from the reference file -- authored
+# 2026-09-18 to mirror the user's own 7-step daily routine (steps 1-6;
+# step 7 needs neighboring rows and isn't computed here) as one
+# filterable column. Locked down as a regression anchor same as the rest.
+REFERENCE_REVIEW_BUCKET_ROW2 = (
+    '=IF(X2="NEW","1. New",IF(W2="Review - pace normalized","2. Override Normalized",'
+    'IF(F2<IF(OR(ISNUMBER(SEARCH("Fri",B2)),ISNUMBER(SEARCH("Sat",B2))),$AA$24,$AA$23),'
+    '"3. Low LY",IF(F2>=$AA$26,"3. High LY",IF(M2>2,"4. Pace >10%",'
+    'IF(M2>1,"4. Pace 5-10%",IF(N2>1,"5. Pickup Spike",'
+    'IF(AND(T2>=0,T2<=U2),"6. Within Window",""))))))))'
+)
 
 
 class FormulaMatchesReferenceFileTest(unittest.TestCase):
@@ -93,6 +106,9 @@ class FormulaMatchesReferenceFileTest(unittest.TestCase):
         self.assertIn('SEARCH("Ahead","")', result)
         self.assertIn('SEARCH("Spike","")', result)
         self.assertIn('SEARCH("Elevated","")', result)
+
+    def test_review_bucket(self):
+        self.assertEqual(_review_bucket_formula(2), REFERENCE_REVIEW_BUCKET_ROW2)
 
 
 class LowLyCutTest(unittest.TestCase):
@@ -143,6 +159,36 @@ class BuildWorkbookTest(unittest.TestCase):
         self.assertEqual(ws["A1"].value, "Date")
         self.assertEqual(ws["P1"].value, "Signal")
         self.assertEqual(ws["X1"].value, "New Since Last Review")
+        self.assertEqual(ws["Y1"].value, "Review Bucket")
+
+    def test_suggested_bump_number_format_is_a_plain_decimal_not_a_percent(self):
+        # 2026-09-18: the user copies/pastes O straight into Override
+        # Request (Q), which expects a plain decimal fraction like "0.05" --
+        # a "%"-styled display (even over a real number) reads wrong once
+        # pasted somewhere that doesn't share that display format.
+        self.assertNotIn("%", SUGGESTED_BUMP_FORMAT)
+        wb = build_workbook([_sample_record("2026-09-12")], date(2026, 9, 12), {})
+        ws = wb["Daily Pacing"]
+        self.assertEqual(ws["O2"].number_format, SUGGESTED_BUMP_FORMAT)
+
+    def test_pickup_and_threshold_ratio_columns_are_grouped_and_hidden(self):
+        # openpyxl merges a grouped column range into a single
+        # ColumnDimension keyed at the start letter -- indexing any other
+        # letter in the range (e.g. ws.column_dimensions["K"]) would just
+        # autovivify a fresh, unhidden entry rather than reflect the group,
+        # so this checks the merged dimension's own min/max/hidden instead.
+        wb = build_workbook([_sample_record("2026-09-12")], date(2026, 9, 12), {})
+        ws = wb["Daily Pacing"]
+        group = ws.column_dimensions["J"]
+        self.assertTrue(group.hidden)
+        self.assertEqual(group.outline_level, 1)
+        self.assertEqual((group.min, group.max), (10, 14))  # J through N
+
+    def test_daily_review_steps_sheet_matches_config(self):
+        wb = build_workbook([_sample_record("2026-09-12")], date(2026, 9, 12), {})
+        ws = wb["Daily Review Steps"]
+        for i, step in enumerate(config.DAILY_REVIEW_STEPS):
+            self.assertEqual(ws[f"A{i + 2}"].value, step)
 
     def test_writes_raw_values_not_formulas_for_pulled_fields(self):
         wb = build_workbook([_sample_record("2026-09-12")], date(2026, 9, 12), {})
