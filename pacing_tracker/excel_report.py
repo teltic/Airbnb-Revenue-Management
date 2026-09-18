@@ -373,13 +373,23 @@ def _set_column_widths(ws):
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
+    # M/N (Pace/Pickup x Threshold) are intermediate ratios that feed the
+    # Suggested Bump and Signal formulas -- not meant to be read directly.
+    # Hidden rather than deleted so they're still there to unhide if you
+    # ever want to sanity-check a formula result.
+    ws.column_dimensions["M"].hidden = True
+    ws.column_dimensions["N"].hidden = True
+
 
 def build_workbook(records, pull_date, previous_state):
     wb = Workbook()
     ws = wb.active
     ws.title = SHEET_NAME
     ws.sheet_view.showGridLines = False
-    ws.freeze_panes = "A2"
+    # Freezes the header row plus columns A-I (Date through Pickup 7d),
+    # matching how the sheet is reviewed day to day -- Occupancy/Pace stay
+    # visible while scrolling right to Suggested Bump/Signal/Override.
+    ws.freeze_panes = "J2"
 
     _write_header(ws)
     _write_data_rows(ws, records, pull_date, previous_state)
